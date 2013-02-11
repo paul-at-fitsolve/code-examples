@@ -1,0 +1,152 @@
+<?php
+
+/**
+ * implements hook_init 
+ */
+function unipro_breadcrumb_init() {
+
+  if (!isset($_SESSION['breadcrumb'])){
+   $_SESSION['breadcrumb'] = new breadcrumb();
+  }
+  
+}
+
+function unipro_breadcrumb_block_info() {
+  $blocks = array();
+  $blocks['breadcrumb_menu'] = array(
+    'info' => t('Block containing the Breadcrumb'),
+    'status' => TRUE,
+    'region' => 'menu',
+    'cache' => DRUPAL_CACHE_PER_USER,
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function unipro_breadcrumb_block_view($block_name = '') {
+  $block = array();
+  
+  if ($block_name == 'breadcrumb_menu') {
+    $block = array(
+        'content' => _unipro_breadcrumb_generate_breadcrumb(),
+    );
+  }
+  
+  return $block;
+}
+
+
+function _unipro_breadcrumb_generate_breadcrumb() {
+  global $theme;
+  global $user;
+  $lineages = array ();
+  $matched_tid = null;
+  // Loading account
+  $account = user_load ( $user->uid );
+  // Make sure user is logged in
+  if (in_array ( 'authenticated user', array_values ( $user->roles ) )) {
+    $output = array ();
+    // We are on a taxonomy term!
+    if (arg ( 0 ) == 'taxonomy') {
+      
+      // Entering from the top menu so reset the taxonomy.
+      if (is_numeric ( arg ( 3 ) )) {
+        $_SESSION ['breadcrumb']->reset ();
+        $_SESSION ['breadcrumb']->addCrumb ( arg ( 3 ) );
+        $_SESSION ['breadcrumb']->addCrumb ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      // Entering via news.
+      if (arg ( 3 ) == 'hearcare-news' || arg ( 3 ) == 'optical-news') {
+        $_SESSION ['breadcrumb']->reset ();
+        $_SESSION ['breadcrumb']->addCrumb ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      // Using breadcrumb.
+      if (arg ( 3 ) == 'bc') {
+        $_SESSION ['breadcrumb']->destroyTail ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      // Using side menu.
+      if (arg ( 3 ) == 'si') {
+        $_SESSION ['breadcrumb']->addCrumb ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+  
+      
+      // Using teaser.
+      if (arg ( 3 ) == 'te') {
+        $_SESSION ['breadcrumb']->addCrumb ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      // Using other topics.
+      
+      if (arg ( 3 ) == 'ot') {
+        $_SESSION ['breadcrumb']->replaceTail ( arg (2) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      // Entering from search results.
+      
+      if (arg ( 3 ) == 'sr') {
+        $lineage = new lineage ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      if (arg ( 3 ) == 'li') {
+        $_SESSION ['breadcrumb'] = $_SESSION['search_bc_'.arg(4)];
+        $_SESSION['breadcrumb']->destroyTail ( arg ( 2 ) );
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+      
+      // From taxonomy term edit page.
+      if (arg ( 3 ) == 'edit') {
+        $activetail = true;
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ( $activetail );
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+    } elseif ((arg ( 1 ) == 'add') && ((is_numeric ( arg ( 3 ) )))) {
+      $check = $_SESSION ['breadcrumb']->checkTail ( arg ( 3 ) );
+      if (! $check) {
+        $_SESSION ['breadcrumb']->addCrumb ( arg ( 3 ) );
+      }
+      $output = $_SESSION ['breadcrumb']->generateBreadcrumb ();
+      return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      
+      //Node handling.
+      //The breadcrumb object will have been populated with Sitemap terms.
+      //These terms would either have been added as the user navigates or by unipro_location_switcher as a lineage.
+    } elseif ((arg ( 0 ) == 'node') && ((is_numeric ( arg ( 1 ) )))) {
+      if (arg ( 2 ) != 'edit') {
+        $activetail = true;
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ( $activetail);
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      } 
+      elseif (arg ( 2 ) == 'edit') {
+        $activetail = true;
+        $output = $_SESSION ['breadcrumb']->generateBreadcrumb ( $activetail );
+        return theme ( 'breadcrumb', array ('breadcrumb' => $output ) );
+      }
+    }
+  }
+}
+
+
+
+
+
+

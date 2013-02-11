@@ -1,0 +1,8 @@
+;$Id$
+
+name = Unipro Custom
+description = "Contains common functions used by other Unipro custom modules."
+core = 7.x
+version = RC1.0
+package = Unipro Custom
+scripts[] = js/unipro_custom.js

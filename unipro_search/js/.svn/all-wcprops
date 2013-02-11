@@ -1,0 +1,53 @@
+K 25
+svn:wc:ra_dav:version-url
+V 92
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js
+END
+test.js
+K 25
+svn:wc:ra_dav:version-url
+V 100
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/test.js
+END
+Core.js
+K 25
+svn:wc:ra_dav:version-url
+V 100
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/Core.js
+END
+Manager.jquery.js
+K 25
+svn:wc:ra_dav:version-url
+V 110
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/Manager.jquery.js
+END
+jeditable.js
+K 25
+svn:wc:ra_dav:version-url
+V 105
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/jeditable.js
+END
+AbstractManager.js
+K 25
+svn:wc:ra_dav:version-url
+V 111
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/AbstractManager.js
+END
+unipro_search.js
+K 25
+svn:wc:ra_dav:version-url
+V 109
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/unipro_search.js
+END
+Parameter.js
+K 25
+svn:wc:ra_dav:version-url
+V 105
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/Parameter.js
+END
+ParameterStore.js
+K 25
+svn:wc:ra_dav:version-url
+V 110
+/specsavers/connectdrupal/!svn/ver/1163/branches/rb-2.0.0/sites/all/modules/unipro_search/js/ParameterStore.js
+END

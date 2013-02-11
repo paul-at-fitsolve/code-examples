@@ -1,0 +1,7 @@
+name = Unipro Breadcrumb
+description = "Provides breadcrmb and lineage classes to support site navigation."
+core = 7.x
+version = RC1.0
+package = Unipro Custom
+files[] = class/breadcrumb.inc
+files[] = class/lineage.inc

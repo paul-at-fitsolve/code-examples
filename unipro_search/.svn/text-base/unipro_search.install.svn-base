@@ -1,0 +1,59 @@
+<?php
+/**
+ * Declares the schema for the unipro_search_history table.
+ */
+function unipro_search_schema() {
+  
+  $schema['unipro_search'] = array(
+      'description' => 'Stores all the searches made on the find_content index.',
+      'fields' => array(
+          'id' => array(
+              'description' => 'Search ID',
+              'type' => 'serial',
+              'size' => 'normal',
+              'unsigned' => TRUE,
+              'not null' => TRUE,
+          ),
+          'userid'	=> array(
+              'description' => 'User ID',
+              'type' => 'int',
+              'size' => 'normal',
+              'not null' => TRUE,
+              'default' => 0,
+          ),
+          'territory'	=> array(
+              'description' => 'Users territory',
+              'type' => 'int',
+              'size' => 'normal',
+              'not null' => TRUE,
+              'default' => 0,
+          ),
+          'timestamp' => array(
+              'type' => 'int',
+              'not null' => TRUE,
+              'default' => 0,
+              'description' => 'Timestamp for when query was executed.',
+          ),
+          'searchterm' => array(
+              'description' => 'The supplied search term.',
+              'type' => 'varchar',
+              'length' => 255,
+              'not null' => TRUE,
+              'default' => 'unset',
+          ),
+          'resultcount'	=> array(
+              'description' => 'Number of results',
+              'type' => 'int',
+              'size' => 'normal',
+              'not null' => TRUE,
+              'default' => 0,
+          ),
+      ),
+      'indexes' => array(
+          'resultcount'        => array('resultcount'),
+      ),
+      'primary key' => array('id'),
+      'description' => 'Search log',
+  );
+  return $schema;
+}

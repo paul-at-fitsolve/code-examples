@@ -1,0 +1,795 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Implements the Drupal 7 Search API giving search functionality.
+ */
+
+/**
+ *Implementation of hook_init() {
+ */
+function unipro_search_init() {
+  drupal_add_js(drupal_get_path('module', 'unipro_search') . '/js/unipro_search.js', 'file');
+  drupal_add_css(drupal_get_path('module', 'unipro_search') . '/css/unipro_search.css');
+  drupal_add_css(drupal_get_path('module', 'unipro_search') . '/css/unipro_search_ie.css', array('group' => CSS_THEME, 'browsers' => array('IE' => 'gt IE 6', '!IE' => FALSE), 'preprocess' => FALSE));
+}
+
+function unipro_search_menu() {
+  $items = array();
+  //Menu definition for the Solr query that returns autocomplete suggestions.
+  $items['solr3x/autocomplete'] = array(
+      'title' => 'Solr autocomplete',
+      'page callback' => '_unipro_search_solr_autocomplete',
+      'page arguments' => array(2),
+      'access callback' => 'user_access',
+      'access arguments' => array('access content'),
+      'type' => MENU_CALLBACK,
+  );
+  
+  $items['solr3x/searchterm'] = array(
+      'title' => 'Solr searchterm',
+      'page callback' => '_unipro_search_solr_searchterm',
+      'page arguments' => array(2),
+      'access callback' => 'user_access',
+      'access arguments' => array('access content'),
+      'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+
+/**
+ * Implements hook_block_info().
+ */
+function unipro_search_block_info() {
+  $blocks = array();
+  //There is a block for the views that are used to facilitate the searches.
+  //Also there are 2 people finder blocks to allow the people finder to appear in 2 different regions within the same theme.
+
+  // Construct a block to hold the Solr search form for initiating local (within a territory) searches.
+  $blocks['solr_search_local'] = array(
+    'info' => t('Block containing the Solr search for content and users.'),
+    'cache' => 8,
+  );
+  // Construct a block to hold the people finder widget.
+  $blocks['people_finder_offices'] = array(
+    'info' => t('First Block containing the people finder widget for offices'),
+    'cache' => 8,
+  );
+  // Another block for the same people finder widget - used so we can have the same widget in different regions in the same theme.
+  $blocks['people_finder_offices_second'] = array(
+    'info' => t('Second Block containing the people finder widget for offices.'),
+    'cache' => 8, 
+  );
+  // Construct a block to hold the people finder widget.
+  $blocks['people_finder_stores'] = array(
+    'info' => t('First Block containing the people finder widget for stores'),
+    'cache' => 8, 
+  );
+  // Another block for the same people finder widget - used so we can have the same widget in different regions in the same theme.
+  $blocks['people_finder_stores_second'] = array(
+    'info' => t('Second Block containing the people finder widget for stores.'),
+    'cache' => 8, 
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function unipro_search_block_view($block_name = '') {
+  // Define the blocks subject, and content - content will be returned via PHP functions.
+  $block = array();
+  if ($block_name == 'solr_search_local') {
+    $block = array(
+      'subject' => t('Search Connect'),
+      'content' => drupal_get_form('_unipro_search_solrsearch_form_local'),
+    );
+  }
+  if ($block_name == 'people_finder_offices') {
+    $block = array(
+      'subject' => t('People finder'),
+      'content' => drupal_get_form('_unipro_search_peoplefinder_offices_form'),
+    );
+  }
+  if ($block_name == 'people_finder_offices_second') {
+    $block = array(
+      'subject' => t('People finder'),
+      'content' => drupal_get_form('_unipro_search_peoplefinder_offices_form'),
+    );
+  }
+  if ($block_name == 'people_finder_stores') {
+    $block = array(
+      'subject' => t('People finder'),
+      'content' => drupal_get_form('_unipro_search_peoplefinder_stores_form'),
+    );
+  }
+  if ($block_name == 'people_finder_stores_second') {
+    $block = array(
+      'subject' => t('People finder'),
+      'content' => drupal_get_form('_unipro_search_peoplefinder_stores_form'),
+    );
+  }
+  return $block;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function unipro_search_form_alter(array & $form, array & $form_state) {
+  $form_state ['cache'] = FALSE;
+  // Is this the local search form?
+  if ($form ['#id'] == '-unipro-search-solrsearch-form-local') {
+    if (isset ( $form ['form'] )) {
+      $form = &$form ['form'];
+    }
+    // This adds autocomplete functionality to the search system, using custom code.
+    $form ['term'] ['#autocomplete_path'] = 'solr3x/autocomplete';
+  }
+    // Is this the search log view?
+  if ($form ['#id'] == 'views-exposed-form-search-log-page' || $form['#id'] == 'views-exposed-form-failed-searches-page') {
+    // Override the standard input box to allow the user to select the
+    // territorty filter from a drop-down.
+    // Preserve a hierarchical display within the drop-down.
+    if (isset ( $form ['territory'] )) {
+      $territory = $form ['territory'];
+      $results = taxonomy_get_tree ( VID_SITE_ACCESS_ROLES, 0, NULL, FALSE );
+      // Add a default so the filter is optional
+      $options = array ('' => '<select>' );
+      // Buld the options array based on the taxonomy tree.
+      foreach ( $results as $term ) {
+        $value = $term->tid;
+        $name = $term->name;
+        $depth = $term->depth;
+        $hierarchy = str_pad ( '-', $depth+1, '-' );
+        if($depth <= 1){
+          $options [$value] = $hierarchy . $name;
+        }
+      }
+      // Alter the field
+      $form ['territory'] ['#type'] = 'select';
+      $form ['territory'] ['#multiple'] = true;
+      $form ['territory'] ['#size'] = min(12, count($options));
+      $form ['territory'] ['#options'] = $options;
+    }
+    
+    if (isset ( $form ['timestamp'] )) {
+      $time_filters = array('' => 'All',
+                            '-1 day' => 'Today',
+                            '-7 days' => 'Last Week',
+                            '-30 days' => 'Last Month', 
+      );
+      
+      $form ['timestamp'] ['#type'] = 'select';
+      $form ['timestamp'] ['#options'] = $time_filters;
+      $form ['timestamp'] ['#size'] = 1;
+    }
+    if (isset($form ['searchterm'])) {
+      $form ['searchterm'] ['#autocomplete_path'] = 'solr3x/searchterm';
+    }
+    $form['#validate'][] = '_unipro_search_validate';
+    //PW - Reverse the validation chain so we can interfere with the values sent in the 
+    //territory filter.
+    $form['#validate'] = array_reverse($form['#validate']);
+  }
+}
+
+/**
+ * This function intercepts the values specified in the Territory filter and 
+ * replaces them with their children so that all sites within a territory are selected.
+ * @param unknown_type $form
+ * @param unknown_type $form_state
+ */
+function _unipro_search_validate($form, &$form_state) {
+  $territory = $form_state['values']['tid'];
+  foreach($territory as $tid){
+    $scope[$tid] = $tid;
+    $children = taxonomy_get_children($tid);
+    foreach($children as $child){
+      $scope [$child->tid] = $child->tid;
+      $grandchildren = taxonomy_get_children($child->tid);
+      foreach ($grandchildren as $grandchild){
+        $scope [$grandchild->tid] = $grandchild->tid;
+      }
+    }
+    $form_state['values']['tid'] = $scope;
+  }
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function unipro_search_views_api() {
+  return array(
+      'api' => '3.0-alpha1',
+  );
+}
+
+// Form definition code
+function _unipro_search_solrsearch_form_local($form, &$form_state) {
+  // FAPI definition for the Solr search form
+  $form['term'] = array(
+    '#type' => 'textfield',
+    '#size' => 225,
+    '#default_value' => variable_get('searchval'),
+    '#attributes' => array('class' => array('search_criteria search_criteria_head')),
+    '#prefix' => '<div id="slba_left"></div><div id="slba_right"><div id="store_locator" class="store_searcher"><h2>' . t('Search') . '</h2>',
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#attributes' => array('class' => array('submit'), 'id' => array('header_search_submit')),
+  );
+  $form['search_type'] = array(
+    '#type' => 'radios',
+    '#default_value' => variable_get('search_type', 0),
+    '#options' => array(t('Content'), t('People')),
+    '#attributes' => array('class' => array('search-form')),
+    '#suffix' => '</div></div>',
+  );
+  $form['#action'] = url('<front>');
+  return $form;
+}
+
+function _unipro_search_solrsearch_form_local_validate($form, &$form_state) {
+  // Simple validator for the Solr search form
+  
+  $raw_input = $form_state['values']['term']; //Raw data from the form.
+  $form_state['values']['term'] = trim ( $raw_input ,'"' ); // Strip whitespace from beginning and end of raw input. http://php.net/manual/en/function.trim.php
+  $trimmed_input =  $form_state['values']['term'];
+ // $disallowed_terms = '/[\x{0000}-\x{001F}\x{0025}\x{002F}\x{003A}-\x{0040}\x{005B}-\x{0060}\x{007B}-\x{00BF}\x{0180}-\x{FFFF}]+/';//Perl-based regex to isolate punctuation from Unicode character set.
+  //$disallowed_terms = '/[\x{0000}-\x{001F}\x{0025}\x{002F}]+/';
+  $disallowed_terms = '/[\x{0000}-\x{001F}]+/';
+  $check = preg_match($disallowed_terms, $trimmed_input, $matches);
+  if ($check || $trimmed_input == '' || ctype_space($trimmed_input)) {
+    form_set_error('term', t('Please enter a valid search term.'));
+  }
+}
+
+function _unipro_search_solrsearch_form_local_submit($form, &$form_state) {
+  global $theme;
+  if ($theme == 'specsavers') {
+    $context = "optical";
+  }
+  elseif ($theme == 'specsavers_hearing') {
+    $context = "hearcare";
+  }
+  else {
+    $context = NULL;
+  }
+  
+  //Get the local site name from the user's profile.
+  global $user;
+  $hlocation = _unipro_custom_get_user_profile_tids($user->uid);
+ 
+  //Submit function for the Solr search form.
+  if ($form_state['values']['search_type'] == 0) {
+    //perform content search.
+    $form_state['redirect'] = 'find_content_local/' .$form_state['values']['term']. '/' .  $hlocation[0] .'/' . $context;
+  }
+  else {
+    //perform people search.
+    $form_state['redirect'] = 'find_people/' .  $form_state['values']['term'] . '/' . _unipro_search_get_current_territory();
+  }
+}
+
+
+//************************************************************************** Private Functions *********************************************************************
+// ========================================================================People Finder Offices=======================================================================
+// Definition of the people finder form and its validation and submition functions.
+function _unipro_search_peoplefinder_offices_form($form, &$form_state) {
+  // FAPI definition for the Solr search form
+  $form['country'] = array(
+    '#type' => 'select',
+    '#options' => _unipro_custom_get_territories(),
+    '#default_value' => '',
+    '#attributes' => array('class' => array('country_criteria'), 'id' => array('country_criteria_head')),
+  );
+
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#size' => 15,
+    '#attributes' => array('class' => array('search_criteria'), 'id' => array('search_criteria_head')),
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Find'),
+    '#attributes' => array('class' => array('submit'), 'id' => array('people_search_submit')),
+  );
+  return $form;
+}
+
+function _unipro_search_peoplefinder_offices_form_validate($form, &$form_state) {
+  
+  $disallowed_terms = '/[\x{0000}-\x{001F}\x{0021}-\x{002F}]+/';
+  $check = preg_match($disallowed_terms, $form_state['values']['name'], $matches);
+  
+  if($check) {
+    form_set_error('term', t('Please enter a valid name to search.'));
+  }
+  
+  // Simple validator for the Solr search form
+  if ($form_state['values']['name'] == "" || ctype_space($form_state['values']['name'])) {
+    form_set_error('term', t('Please enter a valid name to search.'));
+  }
+}
+
+function _unipro_search_peoplefinder_offices_form_submit($form, &$form_state) {
+    $form_state['redirect'] = 'find_people/' . str_replace('/' , '', $form_state['values']['name']) . '/' . (($form_state['values']['country'] == 'Global') ? null :$form_state['values']['country']);
+}
+
+// ===========================================================================People Finder Stores ====================================================================
+function _unipro_search_peoplefinder_stores_form($form, &$form_state) {
+  // FAPI definition for the Solr search form
+
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#size' => 15,
+    '#attributes' => array('class' => array('search_criteria'), 'id' => array('search_criteria_head')),
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Find'),
+    '#attributes' => array('name' => 'submit', 'class' => array('submit'), 'id' => array('people_search_submit')),
+  );
+  return $form;
+}
+
+function _unipro_search_peoplefinder_stores_form_validate($form, &$form_state) {
+  
+  // Simple validator for the Solr search form
+  // Simple validator for the Solr search form
+  
+  $disallowed_terms = '/[\x{0000}-\x{001F}\x{0021}-\x{002F}]+/';
+  $check = preg_match ( $disallowed_terms, $form_state ['values'] ['name'], $matches );
+  
+  if ($check) {
+    form_set_error ( 'term', t ( 'Please enter a valid name to search.' ) );
+  }
+  
+  // Simple validator for the Solr search form
+  if ($form_state ['values'] ['name'] == "" || ctype_space ( $form_state ['values'] ['name'] )) {
+    form_set_error ( 'term', t ( 'Please enter a valid name to search.' ) );
+  }
+}
+
+
+function _unipro_search_peoplefinder_stores_form_submit($form, &$form_state) {
+  // Get correct country - that is the office that correlates to this stores
+  // territory.
+  $form_state ['redirect'] = 'find_people/' . $form_state ['values'] ['name'] . '/' . _unipro_search_get_current_territory ();
+}
+//==============================================================================================================================================================
+
+/**
+ *
+ * Returns an array of office locations formatted for people finder.
+ *
+ * @return Array of taxonomy term names.
+ */
+function _unipro_custom_get_territories() {
+  //Get all the territories for the people finder and form an array with optgroups for offices.
+  $output = array();
+  $vid    = taxonomy_vocabulary_machine_name_load('location')->vid;
+  $tree   = _unipro_custom_get_taxonomy_hierarchy($vid, 0, 2, FALSE, FALSE);
+  foreach ($tree as $term) {
+    // $output [] = $term->name;
+    if ($term->name === 'Offices') {
+      $output['Global'] = 'Global';
+      foreach ($term->children as $child) {
+        $output[$term->name][$child->tid] = $child->name;
+      }
+    }
+  }
+  return $output;
+}
+
+/**
+ *
+ * Get the current territory to act as a context for the people finder search.
+ * For searches initiated in the office theme this will be the current territory that
+ * the office belongs to.
+ * For searches initiated in the stores themes this will be the equivalent office territory for the
+ * current store. A search initiated in a UK stores will search UK Offices.
+ * A search initiated in a Denmark store will search Denmark Office.
+ */
+function _unipro_search_get_current_territory() {
+  //Send back a default value for people finder with the user's territory set.
+  global $user;
+  global $theme;
+  global $unipro_territory_xref;
+  $ttid = _unipro_custom_get_user_profile_tids($user->uid, 'territory');
+  if ($theme === 'specsavers_offices') {
+    //Office people searches are global by default.
+    return null;
+  }
+  else 
+  {
+    //get the correlated office of the current store territory.
+    //For example, if  the user is in UK Store then search UK Offices.
+    $store_territory = taxonomy_term_load($ttid[0])->name;
+    $office_territory = array_search($store_territory, $unipro_territory_xref);
+    $office_tids = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary($office_territory , VID_SITE_ACCESS_ROLES);
+    $refer_array = array_values($office_tids);
+    $office_tid = $refer_array[0]->tid;
+    //This relies on the office tid always being at position 0 in the array, which will always be true as 
+    //Offices comes before Stores alphabetically.
+    return $office_tid;    
+  }
+}
+
+/**
+ *
+ * Implements hook_entity_property_info_alter.
+ * Adds transient properties to the node for the duration of indexing so that the related data can be
+ * added to the Solr search index.
+ * Allows the node to be indexed with a list of territories, regions and storetypes and ages.
+ *
+ * @param unknown_type $info - passes the node as a reference.
+ */
+function unipro_search_entity_property_info_alter(&$info) {
+  $info['node']['properties']['territories'] = array(
+    'type' => 'text',
+    'label' => t('Territories'),
+    'sanitized' => TRUE,
+    'getter callback' => '_unipro_search_get_territories',
+  );
+  $info['node']['properties']['age'] = array(
+    'type' => 'list<text>',
+    'multi_valued' => TRUE,
+    'label' => t('Node Age'),
+    'sanitized' => TRUE,
+    'getter callback' => '_unipro_search_get_age',
+  );
+  $info['node']['properties']['region'] = array(
+    'type' => 'list<text>',
+    'multi_valued' => TRUE,
+    'label' => t('Region'),
+    'sanitized' => TRUE,
+    'getter callback' => '_unipro_search_get_region',
+  );
+  $info['node']['properties']['storetype'] = array(
+    'type' => 'list<text>',
+    'multi_valued' => TRUE,
+    'label' => t('Storetype'),
+    'sanitized' => TRUE,
+    'getter callback' => '_unipro_search_get_storetype',
+  );
+}
+
+/**
+ *
+ * Helper function to return a list of territories for a supplied node.
+ * @param unknown_type $item - the node.
+ * @return Array<String> All the territories that the node is within or global.
+ */
+function _unipro_search_get_territories($item) {
+
+  if (!(isset($item->field_mlocation[LANGUAGE_NONE]))) {
+    return FALSE;
+  }
+  $output = "";
+  foreach ($item->field_mlocation[LANGUAGE_NONE] as $location) {
+    if (!(_unipro_custom_multiple_parent($location['tid']))) {
+      $parents = array_reverse(taxonomy_get_parents_all($location['tid']));
+      if (isset($parents[1]->name)) {
+        $output = $parents[1]->name;
+      }
+    }
+    else {
+      $output = 'Global';
+    }
+  }
+  return $output;
+}
+
+/**
+ *
+ * Works out the age of the node and labels it with
+ * the appropriate Past week, past month and past year labels.
+ * A node that is less than 7 days old will be Past week and past month and past year,
+ * A node that is over 7 days old and less than 30 will be past month and past year,
+ * A node that is over 30 days old and less than 365 will be past year.
+ *
+ * @param $item - the node
+ *
+ * @return Array<string> Appropriate labels.
+ */
+function _unipro_search_get_age($item) {
+  $ts_now            = strtotime('now');
+  $ts_trailing_week  = strtotime('-1 week');
+  $ts_trailing_month = strtotime('-30 days');
+  $ts_trailing_year  = strtotime('-365 days');
+
+  $output = array();
+  $node_date = $item->changed;
+
+  if ($node_date > $ts_trailing_week) {
+    $output[] = "Past Week";
+  }
+  if ($node_date > $ts_trailing_month) {
+    $output[] = "Past Month";
+  }
+  if ($node_date > $ts_trailing_year) {
+    $output[] = "Past Year";
+  }
+  if ($node_date <= $ts_trailing_year) {
+    $output[] = "Over a year old";
+  }
+  if ($node_date <= $ts_trailing_year) {
+    $output[] = 'Older';
+  }
+  return $output;
+}
+
+/**
+ *
+ * Returns a set of regions associated with a node.
+ *
+ * @param $item - the node object.
+ *
+ * @return Array<String> Regions that the node is in.
+ */
+function _unipro_search_get_region($item) {
+  if (!(isset($item->field_mlocation[LANGUAGE_NONE]))) {
+    return FALSE;
+  }
+  $output = array();
+  $accesstokens = _unipro_custom_get_access_control_tids($item, TRUE);
+  return $accesstokens;
+}
+
+/**
+ *
+ * Returns the storetype(s) that the node is tagged against.
+ * So that the node can be indexed as being a hearing and/or optical node.
+ * Will return early if the node is an offices node.
+ * @param $item -the node item.
+ * @return Array<String> Optical/Hearcare or false if offices. (False is not indexed).
+ */
+function _unipro_search_get_storetype($item) {
+  //Check that the node has a valid menu location set against it.
+  //If not then return out of the function.
+  if (!(isset($item->field_mlocation[LANGUAGE_NONE]))) {
+    return FALSE;
+  }
+  //Get all the menu locations on the node.
+  $mlocations = _unipro_custom_get_nodes_mlocations($item->nid);
+  //For every menu location get the store type referenced on the menu location term.
+  $stids = array();
+  foreach ($mlocations as $mlocation) {
+    //Bomb out if this term is not a stores term.
+    if (_unipro_custom_stores_context($mlocation)) {
+      $term = taxonomy_term_load($mlocation);
+      //Check that the store type is set and retreive the value adding it to the $stid array.
+      if ((isset($term->field_store_type[LANGUAGE_NONE])) && (count($term->field_store_type[LANGUAGE_NONE]) > 0)) {
+        //The menu location is tagged with a store type.
+        //Store type is an array so walk the array and return the storetypes.
+        foreach ($term->field_store_type[LANGUAGE_NONE] as $storetype) {
+          $stids[] = $storetype['tid'];
+        }
+        // Load up the full entity to get the storetype names.
+        $store_type = entity_load('taxonomy_term', $stids);
+        if ($store_type) {
+          $store_names = array();
+          foreach ($store_type as $type) {
+            $store_names[] = $type->name;
+          }
+          return $store_names;
+        }
+      }
+      else {
+        // No store type set on the term BUT we check the parents of the term as we allow inheritence from the parents.
+        $parents = taxonomy_get_parents_all($mlocation);
+        foreach ($parents as $parent) {
+          $stids = array();
+          $term = taxonomy_term_load($parent->tid);
+          if ((isset($term->field_store_type[LANGUAGE_NONE])) && (count($term->field_store_type[LANGUAGE_NONE]) > 0)) {
+            foreach ($term->field_store_type[LANGUAGE_NONE] as $storetype) {
+              $stids[] = $storetype['tid'];
+            }
+            $store_type = entity_load('taxonomy_term', $stids);
+            if ($store_type) {
+              $store_names = array();
+              foreach ($store_type as $type) {
+                $store_names[] = $type->name;
+              }
+              return $store_names;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * This function modifies the SOLR search before it us sent to the server.
+ * The search system uses the Drupal Node Access system to determine which nodes to show.
+ * The find_content_local and find_content_global views must NOT have Bypass access checks set Advanced > Other > Query Settings.
+ * @param array $call_args
+ * @param SearchApiQueryInterface $query
+ */
+function unipro_search_search_api_solr_query_alter(array &$call_args, SearchApiQueryInterface $query) {
+  global $user;
+  $filter = null;
+   
+  //Filter 1 - If user is an author then expose unpublished nodes.
+  // But only expose unpublished general_content_moderated.
+  if (in_array ( 'author', $user->roles )) {
+    foreach ($call_args ['params'] ['fq'] as &$filter) {
+      $matches = array();
+      preg_match('/^\(\(is_status:"1"\)+/', $filter, $matches);
+      if ($matches) {
+        $filter = '(is_status:0 AND NOT f_ss_type:business_updates) OR (is_status:1)';
+      }
+    }
+  }
+  //Filter 2 - Filter out all orphan articles.
+  //We are not filtering at index-time as there are only a few of these.
+  //We just ensure we filter out any Solr document that does not have a valid
+  //territory value, which is a symptom of it being an orphan.
+  $call_args['params']['fq'][] = 'ss_territories:(NOT "")';
+  
+  //Set the query fields to spell.
+  //$call_args ['params'] ['qf'] = 'spell';
+  //Duplicate the query fields and submit them to the phrase fields to promote phrase matches.
+  $call_args ['params'] ['pf'] = $call_args ['params'] ['qf'];
+  $call_args ['params']['hl.fl'] =   'spell';
+}
+
+/** AUTOCOMPLETE FUNCTIONALITY STARTS HERE! *****************************************************************************************************
+
+
+/**
+ * Makes a request to the Solr server for a set of articles that match $value
+ * We are using N-Grams to match on any occurence of $value within the target field where that occurence is the start of a word.
+ * The target field is the Node Title.
+ * If node title is "Protecting the Brand" then "Pr" and "Br" will both match for example (that's not an exhaustive list of matches).
+ * @param unknown_type $value
+ */
+function _unipro_search_solr_autocomplete($value) {
+  global $user;
+  $results = array();
+  $suggestions = array();
+  $nodes = array();
+  //Set a filter to restrict suggestions to the user's current site.
+  $hloc = _unipro_custom_get_user_profile_tids($user->uid);
+  $fq = '(f_sm_region:('.$hloc[0].'))';
+  //Get the url to the Solr server derived from the find_content index.
+  $search_indexes = search_api_index_load_multiple(false);
+  $server = $search_indexes['find_content']->server;
+  $search_servers = search_api_server_load_multiple(false);
+  $host = $search_servers[$server]->options['host'];
+  $port = $search_servers[$server]->options['port'];
+  $path = $search_servers[$server]->options['path'];
+  $url = $host  . ':'.$port.$path.'/select?&q=phrasestitle_l%3A'.$value.'&fq='.$fq.'&start=0&rows=10&fl=phrasestitle_l,item_id&qt=standard&wt=json';
+  $response = json_decode(_unipro_search_get_url_contents($url));
+  $result = $response->response;
+  $num_found = $result->numFound;
+  if ($num_found > 0) {
+    foreach ($result->docs as $suggestion) {
+      $nid = $suggestion->item_id;
+      $suggestion->key = '<strong>'.str_replace($value, '<span class = "normal">'.$value.'</span>', strtolower($suggestion->phrasestitle_l)).'</strong>';
+      $suggestion->value = strtolower($suggestion->phrasestitle_l);
+      $stats = statistics_get($nid);
+      if(empty($stats)) {
+        $suggestion->totalCount = 0;
+      } else {
+        $suggestion->totalCount = (int)$stats['totalcount'];
+      }
+    }
+  }
+  foreach ( $result->docs as $doc ) {
+    if (! in_array ( $doc->item_id, $nodes )) {
+      if (node_access ( 'view', node_load ( $nid ) )) {
+        $results [] = $doc;
+        $nodes [] = $doc->item_id;
+      }
+    }
+  }
+  //*
+  $escaped_value = urlencode(str_replace(' ' , '\ ', $value));
+  $url = $host  . ':'.$port.$path.'/select?&q=phrasestitle_k%3A'.$escaped_value.'&fq='.$fq.'&start=0&rows=10&fl=phrasestitle_k,item_id&qt=standard&wt=json';
+  $response = json_decode(_unipro_search_get_url_contents($url));
+  $result = $response->response;
+  $num_found = $result->numFound;
+  if ($num_found > 0) {
+    foreach ($result->docs as $key => $suggestion) {
+      $nid = $suggestion->item_id;
+      $suggestion->key = '<strong>'.str_replace($value, '<span class = "normal">'.$value.'</span>', strtolower($suggestion->phrasestitle_k)).'</strong>';
+      $suggestion->value = strtolower($suggestion->phrasestitle_k);
+      $stats = statistics_get($nid);
+      if(empty($stats)) {
+        $suggestion->totalCount = 0;
+      } else {
+        $suggestion->totalCount = (int)$stats['totalcount'];
+      }
+    }
+  }
+  foreach ( $result->docs as $doc ) {
+    if (! in_array ( $doc->item_id, $nodes )) {
+      if (node_access ( 'view', node_load ( $nid ) )) {
+        $results [] = $doc;
+        $nodes [] = $doc->item_id;
+      }
+    }
+  }
+  usort($results, 'cmp');
+  foreach($results as $key => $suggestion) {
+    if ($key >= 5 ){
+      //Only suggest 5 results.
+      break;
+    }
+    $suggestions[$suggestion->value] = $suggestion->key;
+  }
+  drupal_json_output($suggestions);
+}
+
+/**
+ * Sort by node count then alphabetically.
+ * @param unknown_type $a - First result object.
+ * @param unknown_type $b - Second result object.
+ * @return number
+ */
+function cmp($a, $b)
+{
+  if ($a->totalCount == $b->totalCount) {
+    return strcmp($a->value, $b->value);
+  }
+  return ($a->totalCount < $b->totalCount) ? 1 : -1;
+}
+
+/**
+ * Utility function to make the request to the server using CURL extension.
+ * @param unknown_type $url
+ * @return mixed
+ */
+function _unipro_search_get_url_contents($url){
+  $crl = curl_init();
+  $timeout = 5;
+  curl_setopt ($crl, CURLOPT_URL,$url);
+  curl_setopt ($crl, CURLOPT_RETURNTRANSFER, 1);
+  curl_setopt ($crl, CURLOPT_CONNECTTIMEOUT, $timeout);
+  $ret = curl_exec($crl);
+  curl_close($crl);
+  return $ret;
+}
+
+function unipro_search_search_api_solr_search_results_alter(array &$results, SearchApiQueryInterface $query, Apache_Solr_Response $response) {
+  $search_log = array();
+  global $user;
+  $search_log ['userid'] = $user->uid;
+  //We normalize the search terms to remove any supplied quotes.
+  //So we treat quoted and non-quoted searches as the same.
+  $search_log ['searchterm'] = trim(arg ( 1 ) ,'"');
+  $search_log ['resultcount'] = $results['result count'];
+  if (is_numeric(arg (2))) {
+    $search_log ['territory'] = arg (2);
+  } else {
+    $search_log ['territory'] = 999999;
+  }
+  $search_log['timestamp'] = strtotime('now') ; 
+  $response = drupal_write_record('unipro_search', $search_log);
+  if ($response != SAVED_NEW) {
+     //Handle errors..
+  }
+}
+
+
+/**
+ * This function adds autocomplete functionality to the searchterm filter.
+ * @param unknown_type $value - the searchterm provided via Ajax.
+ */
+function _unipro_search_solr_searchterm($value){
+  $suggestions = array();
+  $query = db_select('unipro_search' , 'us');
+  $query->addField('us', 'searchterm');
+  $query->distinct();
+  $query->condition('searchterm' , '%'.$value.'%' , 'LIKE');
+  $results = $query->execute()->fetchAll();
+  foreach ($results as $result){
+    $suggestions [$result->searchterm] = $result->searchterm;
+  }
+  drupal_json_output($suggestions);
+}

@@ -1,0 +1,359 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Customised Access Control Module that implements business rules to control
+ * access to nodes and menu items (taxa from the Sitemap vocabulary).
+ */
+
+// Define constants for specific node access.
+define ( 'SENSITIVE', 1000000 );
+define ( 'OUT_OF_SCOPE', 9999999 );
+
+/**
+ * Implements hook_permission().
+ * 'edit own user account' gives the holder the permission to edit their user profile.
+ * 'view own user account' gives the holder the permission to view their user profie.
+ * 'use universal weighting' gives the holder the permission to access the sort tab on teaser lists.
+ */
+function unipro_access_control_permission() {
+  return array ( 
+  'edit own user account' => array ('title' => t ( 'Edit own user account' ), 'description' => t ( 'Allow users to edit own accounts.' ) ),
+  'view own user account' => array ('title' => t ( 'View own user account' ), 'description' => t ( 'Allow users to view own accounts.' ) ),
+  'use universal weighting' => array ('title' => t ( 'Reorder Content By Weight' ), 'description' => t ( 'Allow users to reorder content.' ) ))
+  ;  
+}
+
+/**
+ * Implements hook_menu_alter.
+ */
+function unipro_access_control_menu_alter(&$items) {
+  $items ['user/%user/edit'] ['access callback'] = '_unipro_access_control_user_edit_access';
+  $items ['user/%user'] ['access callback'] = '_unipro_access_control_user_view_access';
+  // Remove access to the standard Taxonomy Management to all bar admins.
+  $items ['admin/structure/taxonomy'] ['access callback'] = '_unipro_access_control_taxonomy_access';
+}
+
+/**
+ * Implements hook_node_access_records.
+ */
+function unipro_access_control_node_access_records($node) {
+  $error_msgs = array ('NodeOutOfScope' => 'Node {id:' . $node->nid . ', title:' . $node->title . '} is out of access control scope.' );
+  $grants = array ();
+  
+  switch ($node->type) {
+    
+    case 'general_content' :
+    case 'general_content_moderated' :
+    case 'business_updates' :
+    case 'office_notice' :
+    case 'poll' :
+    case 'webform':
+    case 'quick_links' :
+      
+      $actids = array ();
+      $sensitivenode = FALSE;
+      // Check that the node is tagged with a term from the Sitemap, which will be held in the field_mlocation[LANGUAGE_NONE] array.
+      // If the array is not set then deny access to the node to all except admin.
+      $actids = _unipro_custom_get_access_control_tids ( $node, TRUE );
+      if (! ($actids)) {
+        _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['NodeOutOfScope'] );
+        $grants [] = array ('realm' => 'unipro_access_control', 'gid' => OUT_OF_SCOPE, 'grant_view' => 1, 'grant_update' => 0, 'grant_delete' => 0, 'priority' => 0 );
+        return $grants;
+      }
+      // Checks the sensitivity of the node and sets a boolean accordingly.
+      
+      if (isset($node->field_sensitive [LANGUAGE_NONE] [0] ['value']) &&  $node->field_sensitive [LANGUAGE_NONE] [0] ['value'] == 1) {
+        $sensitivenode = TRUE;
+      }
+      
+      // Here we create a set of grants with grant id for all the Site Access Roles set on the mlocation.
+      // on the node.
+      
+      foreach ( $actids as $gtid ) {
+        if ($sensitivenode) {
+          $grant = $gtid + SENSITIVE;
+        } else {
+          $grant = $gtid;
+        }
+        $grants [] = array ('realm' => 'unipro_access_control', 'gid' => $grant, 'grant_view' => 1, 'grant_update' => 0, 'grant_delete' => 0, 'priority' => 0 );
+      }
+      
+      break;
+    
+    case 'store' :
+      
+      //Issue a grant that matches the id of the role access store data.
+      
+      //Return an associative array with all roles that have been granted permission access store data. Role_id is the key.
+      $valid_roles = user_roles(TRUE, 'view store data');
+  
+      if (!$valid_roles) {
+        //No roles have our permission so we should consider the store content to be out-of-scope. That means no one can access it.
+        $grants [] = array ('realm' => 'unipro_access_control', 'gid' => OUT_OF_SCOPE, 'grant_view' => 1, 'grant_update' => 0, 'grant_delete' => 0, 'priority' => 0 );
+        return $grants;
+      }
+      
+      if (count($valid_roles)>1) {
+        //An extra check here to see if there is a 1:1 relationship between the permission 'access store data' and the set of roles on te system. A 1:* is not correct so we play
+        //safe an deny access to all. 
+        $grants [] = array ('realm' => 'unipro_access_control', 'gid' => OUT_OF_SCOPE, 'grant_view' => 1, 'grant_update' => 0, 'grant_delete' => 0, 'priority' => 0 );
+        return $grants;
+      }
+      
+      if(!in_array('store data viewer', $valid_roles)){
+        //There is no store data viewer role, so once again we deny access to the store content by moving it out-of-scope.
+        $grants [] = array ('realm' => 'unipro_access_control', 'gid' => OUT_OF_SCOPE, 'grant_view' => 1, 'grant_update' => 0, 'grant_delete' => 0, 'priority' => 0 );
+        return $grants;
+      }
+      
+      //At this point we have tested that there is a permission 'view store data' and that it has been granted to the role 'store data account' and not to any other role.
+      //It should be safe to issue a grant on this node, which will be the Role ID (RID) of the store data viewer role
+      
+      $grants [] = array ('realm' => 'unipro_access_control', 'gid' => array_search('store data viewer',$valid_roles), 'grant_view' => 1, 'grant_update' => 0, 'grant_delete' => 0, 'priority' => 0 );
+      watchdog ( 'store_data_access', 'granted on node ' . $node->title );
+      break;
+  }
+  
+  watchdog ( 'node_access_records', 'called on node ' . $node->title );
+  return $grants;
+}
+
+/**
+ *
+ *
+ * Inform the node access system which permissions the user has.
+ * Grants a user a "grant IDs" if they have access to the node.
+ * The user will be granted a grant ID for all nodes in their territory.
+ * Furthermore, users with the roles "store director" and "office senior
+ * manager" will be granted
+ * and ID to see sensitive data.
+ *
+ * @param $account -
+ *          a user object.
+ * @param $op -
+ *          which CRUD operation is being performed on the node. We only issue
+ *          grants to view.
+ */
+function unipro_access_control_node_grants($account, $op) {
+  $director = FALSE;
+  $seniormanager = FALSE;
+  $author = FALSE;
+  $tim = FALSE;
+  $grants = array ();
+  $user = user_load ( $account->uid );
+  $roles = array_values ( $user->roles );
+  if (empty ( $roles )) {
+    return array ();
+  }
+  if ($op == 'view') {
+    
+    //Specific processing for the user that has the 'store data viewer role';
+    if (in_array('store data viewer', $roles)) {
+      $grants ['unipro_access_control'] [] = array_search('store data viewer', $user->roles);
+      return $grants;
+    }
+    $privuser = FALSE;
+    // Now check if the user is a member of a role with permissions to view
+    // SENSITIVE content
+    if (in_array ( 'store director', $roles )) {
+      $director = TRUE;
+    }
+    if (in_array ( 'office senior manager', $roles )) {
+      $seniormanager = TRUE;
+    }
+    if (in_array ( 'author', $roles )) {
+      $author = TRUE;
+    }
+    if (in_array ( 'Territory information manager', $roles )) {
+      $tim = TRUE;
+    }
+    // Grant access to all non-sensitive nodes when the user is performing a Global search.
+    if (arg (0) == 'find_content_global') {
+      // Add the response to the $grants array.
+      $query = db_select('taxonomy_term_data' , 'td');
+      $query->condition('vid' , VID_SITE_ACCESS_ROLES);
+      $query->addField('td', 'tid');
+      $result = $query->execute();
+      $sites = $result->fetchCol();
+      foreach ($sites as $site) {
+        $grants ['unipro_access_control'] [] = (int)$site;
+      }
+    } 
+    // Grant access to all Nodes that are tagged with the user's home location.
+    if (isset ( $user->field_hlocation [LANGUAGE_NONE] )) {
+      foreach ( $user->field_hlocation [LANGUAGE_NONE] as $location ) {
+        $home_location = $location ['tid'];
+        if (($director) || ($tim)) {
+          // User is a director or tim so they respond to both non-sensitive AND
+          // sensitive grants on the node.
+          // Add each response to the end of the $grants array.
+          $grants ['unipro_access_control'] [] = $home_location + SENSITIVE;
+          $grants ['unipro_access_control'] [] = (int)$home_location;
+        } else {
+          // User is not a director or tim so they respond only to the non-sensitive
+          // grant.
+          // Add the response to the $grants array.
+          $grants ['unipro_access_control'] [] = (int)$home_location;
+        }
+      }
+    }
+    // Grant access for senior managers to view content including sensitive within all the
+    // locations set as their Primary Stores (pstores) locations.
+    if ($seniormanager) {
+      if (isset ( $user->field_pstores [LANGUAGE_NONE] )) {
+        foreach ( $user->field_pstores [LANGUAGE_NONE] as $location ) {
+          $plocation = $location ['tid'];
+         // $grants ['unipro_access_control'] [] = (int)$plocation;
+          $grants ['unipro_access_control'] [] = $plocation + SENSITIVE;
+        }
+      }
+    }
+    // Grant access for authors to view sensitive content within all the
+    // locations set as their alocations.
+    if ($author) {
+      if (isset ( $user->field_alocation [LANGUAGE_NONE] )) {
+        foreach ( $user->field_alocation [LANGUAGE_NONE] as $location ) {
+          $alocation = $location ['tid'];
+          $grants ['unipro_access_control'] [] = $alocation + SENSITIVE;
+          $grants ['unipro_access_control'] [] = $alocation;
+        }
+      }
+    }
+    return $grants;
+  }
+}
+/**
+ * Implements hook_node_access 
+ * grants edit access to nodes based on the user's role.
+ * 
+ * @param $node Node         
+ * @param $op String         
+ * @param $account User         
+ */
+function unipro_access_control_node_access($node, $op, $account) {
+  
+  // Drop out if the calling agent is workbench - as this call does not add
+  // anything and causes an error
+  // as it sends a partial node object that cannot be processed.
+  if (arg ( 1 ) == 'workbench') {
+    return NODE_ACCESS_IGNORE;
+  }
+  
+  // If the node is not being updated then ignore the access request.
+  if ($op != 'update') {
+    return NODE_ACCESS_IGNORE;
+  }
+  
+  // If the node type is store then ignore the access request
+  if ($node->type == 'store') {
+    return NODE_ACCESS_IGNORE;
+  }
+  
+  
+  // Check the users roles.
+  $roles = array_values ( $account->roles );
+  $author_roles = array ('Territory information manager', 'author' );
+  $check_author_roles = array_intersect ( $author_roles, $roles );
+  
+  if (empty ( $check_author_roles )) {
+    // If not an author role then ignore thhe request - allowing permission
+    // settings to take precedence.
+    return NODE_ACCESS_IGNORE;
+  }
+  // Get all the access control tids on the node.
+  $uniques = _unipro_custom_get_access_control_tids ( $node, TRUE );
+  
+  if ($uniques) {
+    
+    $user = user_load ( $account->uid );
+    
+    if (! (isset ( $user->field_alocation [LANGUAGE_NONE] ))) {
+      // If there are no author locations set on the user ignore the request -
+      // allowing permission settings to take precedence.
+      return NODE_ACCESS_IGNORE;
+    }
+    
+    $alocations = $user->field_alocation [LANGUAGE_NONE];
+    
+    foreach ( $alocations as $alocation ) {
+      // We find a match between the users alocations and the nodes access tids.
+      if (in_array ( $alocation ['tid'], $uniques )) {
+        
+        // Check the node type and if not a quick link then allow access.
+        if ($node->type != 'quick_links') {
+          return NODE_ACCESS_ALLOW;
+        }
+        
+        // Allow access to quick links if the user has the role of TIM.
+        if (($node->type == 'quick_links') && (in_array ( 'Territory information manager', $check_author_roles ))) {
+          return NODE_ACCESS_ALLOW;
+        }
+      }
+    }
+    return NODE_ACCESS_IGNORE;
+  } else {
+    return NODE_ACCESS_IGNORE;
+  }
+}
+
+
+// *****Private functions ******
+
+/**
+ * Access callback for user account editing.
+ * Based on the pattern of user_edit_access -
+ * http://api.drupal.org/api/drupal/modules--user--user.module/function/user_edit_access/7
+ */
+function _unipro_access_control_user_edit_access($account) {
+  global $user;
+  $uid = is_object ( $account ) ? $account->uid : ( int ) $account;
+  // Never allow access to view the anonymous user account.
+  if ($uid) {
+    // Admins can view all, users can view own profiles at all times.
+    if (user_access ( 'administer users' )) {
+      return TRUE;
+    } elseif ((user_access ( 'edit own user account' ) && $user->uid == $account->uid)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Access callback for user account viewing.
+ * Checks if the current user has certain permissions to
+ * allow access to view user profiles.
+ *
+ * @return FALSE unless the user has the necessary permissions
+ */
+function _unipro_access_control_user_view_access($account) {
+  $uid = is_object ( $account ) ? $account->uid : ( int ) $account;
+  // Never allow access to view the anonymous user account.
+  if ($uid) {
+    // Admins can view all, users can view own profiles at all times.
+    if (user_access ( 'administer users' )) {
+      return TRUE;
+    } elseif (user_access ( 'access user profiles' ) && $GLOBALS ['user']->uid != $uid) {
+      // At this point, load the complete account object.
+      if (! is_object ( $account )) {
+        $account = user_load ( $uid );
+      }
+      return (is_object ( $account ) && $account->status);
+    } elseif ($GLOBALS ['user']->uid == $uid && user_access ( 'view own user account' )) {
+      // At this point, load the complete account object.
+      if (! is_object ( $account )) {
+        $account = user_load ( $uid );
+      }
+      return (is_object ( $account ) && $account->status);
+    }
+    return FALSE;
+  }
+}
+
+function _unipro_access_control_taxonomy_access($account) {
+  // Only allow admins to user standard taxonomy managment system. TIMS have to
+  // use the Taxonomy Manager.
+  return (user_access ( 'administer site configuration' )) ? True : False;
+}

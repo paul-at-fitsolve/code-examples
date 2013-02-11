@@ -1,0 +1,8 @@
+;$Id$
+
+name = Unipro Dynatree
+description = "Creates a custom widget that uses Dynatree - http://code.google.com/p/dynatree."
+core = 7.x
+version = RC1.0
+package = Unipro Custom
+dependencies[] = unipro_custom

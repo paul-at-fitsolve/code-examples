@@ -1,0 +1,12 @@
+/* Search top */
+#block-unipro-search-solr-search-local div.form-type-radio,#block-unipro-search-solr-search-global div.form-type-radio
+    {
+    float: left;
+    margin-top: 0px;
+    margin-left: 10px;
+    margin-bototm: 0px;
+    color: #fff;
+}
+#store_locator input.search_criteria {
+	padding-bottom: 6px;
+}

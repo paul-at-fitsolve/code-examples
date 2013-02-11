@@ -1,0 +1,415 @@
+/* Search top */
+#store_locator h2,#book_appointment h2 {
+    color: #fff;
+    font-size: 14px;
+    margin: 0;
+    line-height: 12px;
+    padding: 8px 0 5px 5px;
+    font-weight: bold;
+}
+
+#store_locator h2 {
+    padding-left: 12px;
+}
+
+#store_locator h2.secure {
+    padding-left: 5px;
+}
+input#edit-search-type-1 {
+    margin-left: 10px;
+    margin-top: 0px
+}
+input#edit-search-type-0 {
+    margin-top: 0px
+}
+label[for="edit-search-type-0"],
+label[for="edit-search-type-1"] {
+    font-size: 11px !important;
+    font-weight: bold;
+}
+#block-unipro-search-solr-search-local div.form-type-radio,#block-unipro-search-solr-search-global div.form-type-radio
+    {
+    float: left;
+    margin-top: 4px;
+    margin-left: 10px;
+    margin-bototm: 0px;
+    color: #fff;
+}
+
+input.search_criteria_head {
+    font-size: 12px;	
+    padding-top: 4px !important;
+}
+
+/* Search results */
+
+.page-find-content-local #content div.section,
+.page-find-content-global #content div.section {
+    width: 750px !important;
+}
+
+.page-find-content-local .block-facetapi,
+.page-find-content-global .block-facetapi {
+    margin-left: -20px;
+}
+
+.page-find-content-local #sidebar-second .section,
+.page-find-content-global #sidebar-second .section {
+    float: left;
+    max-width: 170px;
+    padding-left: 0;
+}
+
+.page-find-content-global-specsavers #content .section,
+.page-find-content-local-specsavers #content .section {
+    width: 735px !important;    
+}
+
+
+
+.page-find-content-global-specsavers #sidebar-second,
+.page-find-content-local-specsavers #sidebar-second {
+  margin-right: 35px !important;
+}
+
+.page-find-content-global-specsavers #content h2 a,
+.page-find-content-local-specsavers #content h2 a {
+    color: green;
+}
+
+.page-find-content-global-specsavers #content h2 a:hover,
+.page-find-content-local-specsavers #content h2 a:hover {
+    color: #08B008;
+    text-decoration: underline;
+}
+
+
+.searching-for {
+    font-weight: bold;
+    margin-bottom: 10px;
+    padding-top: 2px;
+}
+
+.page-find-content-global .search-pager-top,
+.page-find-content-local .search-pager-top {
+    float: right;
+    border-bottom: 1px solid #ccc;
+    width: 750px;
+    margin-bottom: 16px;
+    background: #fff;
+}
+
+.page-find-people .search-pager-top {
+    float: right;
+    border-bottom: 1px solid #ccc;
+    width: 700px;
+    margin-bottom: 16px;
+}
+.page-find-content-global h2.finder,
+.page-find-content-local h2.finder,
+.page-find-people h2.finder {
+  margin-top:6px ;
+
+}
+.page-find-content-global .search-pager-top-exp,
+.page-find-content-local .search-pager-top-exp {
+  float:right ; 
+  padding:0; 
+  margin-top:28px;
+  margin-bottom: 0 ;
+}
+.search-pager-top-exp h2 {
+  margin:0 ;
+  padding:0 ;
+  display:none ;
+}
+.search-pager-top-exp ul.pager {
+  margin: 0;
+  padding:0 ;
+}
+.page-find-content-global .view-content .field-content h2,
+.page-find-content-local .view-content .field-content h2,
+.page-find-people .view-content .field-content h2 {
+  padding-top: 2px ; 
+}
+.page-find-content-global .node-teaser .views-field-changed,
+.page-find-content-local .node-teaser .views-field-changed,
+.page-find-people .node-teaser .views-field-changed {
+  padding-bottom: 6px  ;
+}
+
+.page-find-content-local .node-teaser,
+.page-find-people .node-teaser {
+  min-height: 110px ;
+}
+
+.search-pager-top ul.pager {
+    margin-left: 250px;
+    text-align: right;
+    float: right;   
+}
+
+ul.pager a{
+    color: green;
+    font-size: 12px;
+}
+ul.pager a:hover {
+    color: #08B008;
+}
+ul.pager li.pager-item {
+    padding: 2px;	
+}
+.search-pager {
+    float: right;   
+}
+
+.block-facetapi ul li{
+    list-style: none;   
+}
+.views-field-field-mlocation-tid {
+	padding-top: 5px;
+}
+.views-field-field-document-file-name {
+    color: #68696B;
+    font-size: 12px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+.views-field-field-topics {
+	color: #68696B;
+    font-size: 12px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+
+.views-field-changed {
+    color: #68696B;
+    font-size: 12px;
+    padding-top: 5px;
+    padding-bottom: 22px;
+}
+.views-field-created {
+    color: #68696B;
+    font-size: 12px;
+    padding-top: 5px;
+    padding-bottom: 15px;
+}
+.block-facetapi  {
+   font-size: 9px;
+   list-style: none outside none;
+   padding:0 !important;
+   margin:25px 0px 10px 0px !important;
+   width:200px;
+}
+input.facetapi-checkbox {
+    margin-top : 5px;
+}
+ul li.leaf a{
+   position: relative;
+   margin-top: -5px;
+   margin-left: 3px;
+}
+
+ul.facetapi-facet-region li.leaf {
+    margin-top : 5px;       
+}
+
+.facetapi-limit-link{
+    padding-left: 8px;  
+}
+.block-facetapi .item-list {
+    padding: 0 5px 5px 0px;
+    line-height: 1.2;
+    width: 150px;
+}
+.block-facetapi .item-list a.facetapi-checkbox-processed {
+    display: block;	
+    margin-top: -15px;
+    padding-left: 20px;
+}
+.block-facetapi .content {
+    margin-top: 0;
+}
+.block-facetapi h2 {
+    color: #000;
+    font-size: 12px !important;
+    font-weight: bold;
+    padding: 3px;
+    text-shadow: none !important; 
+}
+.views-field-body-summary,
+.views-field-changed,
+.views-label-created,
+.views-field-field-mlocation,
+.views-field-title {
+    width: 600px;
+    margin-right: 10px;
+}
+.views-field-field-image-file-name {
+    float: right;
+    display: block; 
+}
+.views-field-body-summary {
+    padding-top: 5px;  
+    padding-bottom: 5px;  
+}
+.breadcrumb {
+    margin-top: 5px;
+    font-size: 12px !important;
+    color: #68696B !important;
+}
+
+label[for=edit-sort-by],
+label[for=edit-sort-order] {
+    font-size: 12px !important;
+}
+
+input#edit-submit-find-content-global-104,
+input#edit-submit-find-content-local-104 {
+    margin-top: 17px;
+    background: url(profile_submit.png) right;
+    color: #fff;
+    font-weight: bold;  
+    padding-left: 10px;
+    padding-right: 18px;  
+}
+
+input#edit-submit-find-content-global:hover,
+input#edit-submit-find-content-local:hover {
+    text-decoration: underline;     
+}
+
+.no-results {
+    border-top: 1px solid #ccc;   
+    border-bottom: 1px solid #ccc;   
+    margin-top: 45px;   
+    padding: 45px 0 45px 0; 
+    width: 600px;
+}
+
+.search_results_image {
+    margin-top: -30px;	
+}
+
+/* People Finder */
+#block-unipro-search-people-finder-offices,
+#block-unipro-search-people-finder-stores,
+#block-unipro-search-people-finder-offices-second,
+#block-unipro-search-people-finder-stores-second {
+    margin: 0;
+    padding: 0;
+    margin-left: 20px;
+    margin-top: -4px;
+    float: left;
+    width: 210px;
+}
+#block-unipro-search-people-finder-offices h2,
+#block-unipro-search-people-finder-offices h2 {
+    border-top: 8px solid #d6d6d6;
+    font-size: 14px !important;
+    font-weight: bold !important;
+    color: #707070;
+    padding-left: 0px;
+    margin-left: 0px;
+    padding-top: 3px;
+}
+.view-find-people h2 a {
+    color: green !important;    
+}
+.find-people-data {
+    color: #000 !important;
+}
+.page-find-people .views-row {
+    border-bottom: 1px solid #ccc;
+    padding-top: 15px;
+    padding-bottom: 5px;
+}
+
+/* People Finder (Search) */
+.page-find-people  .search-pager-top {
+    border-bottom: 1px solid #ccc !important;
+    padding: 0;
+    margin-bottom: 16px;
+}
+.page-find-people .found-items {
+    font-weight: bold;
+}
+.page-find-people #block-unipro-search-people-finder-offices-second h2,
+.page-find-people #block-unipro-search-people-finder-stores-second h2  {
+    width: 200px;
+    font-weight: bold;  
+}
+.page-find-people #block-unipro-search-people-finder-offices-second ,
+.page-find-people #block-unipro-search-people-finder-stores-second  {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    width: 200px;
+    margin-top: 60px;
+    margin-left: 0;
+}
+.page-find-people #sidebar-second {
+    width: 214px;
+}
+.page-find-people #sidebar-second .section{
+    width: 214px;
+}
+.page-find-people .people-finder {
+    float: right;
+}
+.page-find-people .sidebar h2 {
+  padding-bottom:16px ; 	
+}
+.page-find-people h2.people-header {
+    font-size: 14px;
+    font-weight: bold;
+    padding: 0;
+    margin: 0;
+}
+
+.page-find-people label[for="edit-country"] {
+    margin-bottom: 9px; 
+}
+
+#-unipro-search-peoplefinder-offices-form {
+    border: 1px solid #ececec;
+    padding: 10px;
+    height: 120px;
+    width: 180px;    	
+}
+#-unipro-search-peoplefinder-stores-form {
+    border: 1px solid #ececec;
+    padding: 10px;
+    height: 80px;
+    width: 180px;   	
+}	
+
+#country_criteria_head {
+    font-size: 12px;    
+}
+
+#search_criteria_head {
+    width: 170px;
+    height: 18px;
+    font-size: 12px;
+}
+
+#country_criteria_head {
+    width: 180px;   
+}
+
+#people_search_submit {
+    float: right;   
+    padding-left: 4px;
+    background: url(profile_submit.png) right;
+    color: #fff;
+    font-weight: bold;
+    margin: 0;
+    margin-right: 2px;
+}
+
+#people_search_submit:hover {
+    text-decoration: underline;    
+}
+.page-find-people #content .section {
+    width: 700px !important;    
+}

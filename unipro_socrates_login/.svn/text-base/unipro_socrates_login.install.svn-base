@@ -1,0 +1,66 @@
+<?php
+
+/**
+ * Implements hook_enable().
+ */
+function unipro_socrates_login_enable() {
+  
+  // create any roles we will be using
+	$vsd_permissions = array(
+		'view store data',
+	);
+	
+	_unipro_custom_add_role('store data viewer');
+	_unipro_custom_add_permissions('store data viewer', $vsd_permissions);
+	
+  // allow anonymous users to make socrates login requests
+  $permissions = array ('make socrates requests' );
+  user_role_grant_permissions ( DRUPAL_ANONYMOUS_RID, $permissions );
+  
+  $system_roles = user_roles();
+  $role = array();
+  array_push($role, 'store data viewer');
+  
+  $new_roles = array_intersect($system_roles, $role);
+  
+  // check to see if we have the store data user
+  $user = user_load_by_mail('store_data@theuniprogroup.com');
+  if(!$user) {
+      $r = new stdClass();
+      $r->name = 'store_data';
+      require_once DRUPAL_ROOT . '/' . variable_get('password_inc', 'includes/password.inc');
+      $r->pass = user_hash_password('Store_data151');
+      $r->mail = 'store_data@theuniprogroup.com';
+      $r->status = 1;
+      $r->roles = $new_roles;
+      $result = user_save($r);
+	  if (! $result) {
+        watchdog ( 'unipro_socrates_login', 'Failed to create the store data account role', 'error' );
+        return;
+	  }
+  }
+}
+
+/**
+ * Implements hook_disable().
+ */
+function unipro_socrates_login_disable() {
+  
+  //Revoke the make socrates requests when the module is disabled.
+  
+  $permissions = array('make socrates requests', 'view store data', 'administer socrates login', 'view socrates login');
+  $roles = user_roles();
+  // Since permissions can be set per role, remove our permission from each role.
+  foreach ($roles as $rid => $name) {
+    user_role_revoke_permissions($rid, $permissions);
+  }
+  
+  
+  
+  //When uninstalling this module - delete the custom role, thus removing the ability to access store data.
+  user_role_delete('store data viewer');
+  $user = user_load_by_mail('store_data@theuniprogroup.com');
+  if ($user) {
+    user_delete($user->uid);
+  }
+}

@@ -1,0 +1,164 @@
+@CHARSET "ISO-8859-1";
+/*** TERM ADD FORM **/
+#term-add-wrapper div.form-item,#term-add-wrapper #topics {
+    margin-top: 20px;
+}
+
+#term-add-wrapper label {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#term-add-wrapper .form-type-managed-file {
+    margin-top: -25px;
+}
+
+#term-add-wrapper span.fieldset-legend {
+    margin-top: -14px;
+    position: absolute;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+#term-add-wrapper label[for=edit-body-und-0-value],#term-add-wrapper label[for=edit-field-see-also-und-0-nid],#term-add-wrapper label[for=edit-field-topics-und],#term-add-wrapper label[for=edit-body-und-0-summary]
+    {
+    font-size: 14px;
+}
+
+#term-add-wrapper .desc,.text-summary-wrapper,.description {
+    font-size: 10px;
+    padding: 3px;
+}
+
+.text-summary-wrapper .text-summary,
+#edit-field-summary-und-0-value {
+    font-size: 12px;
+    line-height: 1.2;
+    font-family: Helvetica, Arial !important;
+}
+
+#term-add-wrapper #suggest_tags {
+    margin-top: 10px;
+}
+
+#term-add-wrapper input#edit-title,#term-add-wrapper input#edit-name {
+    font-size: 2em;
+    line-height: 1;
+    width: 99%;
+}
+
+#term-add-wrapper #edit-field-image-und,#term-add-wrapper #edit-field-image-und-0-ajax-wrapper,#term-add-wrapper #edit-field-document-und,#term-add-wrapper #edit-field-document-und-0-ajax-wrapper
+    {
+    border: 1px solid #ccc;
+    padding-left: 1em;
+}
+
+#term-add-wrapper fieldset legend {
+    background: none;
+    border: none;
+    margin-top: -1.6em;
+    margin-left: -0.8em;
+}
+
+#image span.fieldset-legend {
+    margin-left: -0.7em;
+}
+
+#term-add-wrapper #image {
+    margin-top: 1em;
+    margin-bottom: 2.5em;
+}
+
+#term-add-wrapper #tree {
+    margin-top: -10px;
+}
+
+#term-add-wrapper .boxed-content {
+    border: 1px solid #ccc;
+    padding-left: 1em;
+    margin-bottom: 2em;
+}
+
+#edit-field-content-type-und {
+    height: 40px;
+    margin-top: -10px;
+}
+
+#term-add-wrapper  #edit-field-content-type-und div.form-item {
+    width: 150px;
+    float: left;
+    margin-top: 0;
+}
+
+#term-add-wrapper  #edit-field-content-type-und input.error div.boxed-content {
+    border: 2px solid red;
+}
+
+#term-add-wrapper #document {
+    margin-bottom: 2em;
+}
+
+#term-add-wrapper #see_also div.form-item {
+    margin: 0;
+    padding: 0;
+}
+
+#term-add-wrapper #document_description {
+    margin-left: -18px;
+    padding: 8px;
+}
+
+#term-add-wrapper th.field-label,#edit-description-format,#edit-comment-body-und-0-format,#edit-body-und-0-format,#term-add-wrapper .tabledrag-toggle-weight,#term-add-wrapper label[for=edit-field-image-und-0],#term-add-wrapper label[for=edit-field-topics-und],#term-add-wrapper #document span.fieldset-legend,#term-add-wrapper label[for=edit-field-content-type-und],#term-add-wrapper label[for=edit-field-insert-image-und-0]
+    {
+    display: none;
+}
+
+/* ------------------ #term-add-wrapper Table Styles ------------------ */
+#term-add-wrapper td {
+    border: 1px solid #ccc;
+}
+
+#term-add-wrapper table tr th {
+    background: none;
+    font-size: 15px;
+    font-weight: bold;
+    color: #333;
+}
+
+#term-add-wrapper #footer-wrapper tr td,#term-add-wrapper #footer-wrapper tr th
+    {
+    background: none;
+}
+
+#term-add-wrapper tr.odd {
+    background: none;
+}
+
+#term-add-wrapper tr,#term-add-wrapper tr.even {
+    background: none;
+}
+
+/* ---------------- Schedular settings field --------------- */
+#edit-field-publish-on fieldset {
+    margin: 0;
+    padding: 0;
+    margin-top: 4em;
+}
+
+#edit-field-unpublish-on fieldset {
+    margin: 0;
+    padding: 0;
+    margin-top: 4em;
+    margin-bottom: 4em; 
+}
+
+#edit-field-publish-on .fieldset-wrapper,
+#edit-field-unpublish-on .fieldset-wrapper {
+    margin: 0;
+}
+
+#edit-field-publish-on span.fieldset-legend,
+#edit-field-unpublish-on span.fieldset-legend {
+    margin: 0;
+    position: relative;
+}

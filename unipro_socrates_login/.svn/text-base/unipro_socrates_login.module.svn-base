@@ -1,0 +1,593 @@
+<?php
+
+/**
+ * implements hook_menu
+ */
+function unipro_socrates_login_menu() {
+
+  $items = array();
+  $items['socrates'] = array(
+			'title' => 'Initial Connect login',
+			'type' => MENU_CALLBACK,
+			'description' => t('Manage Socrates Logins'),
+			'page callback' => '_unipro_socrates_login_callback',
+			'access arguments' => array('make socrates requests'),
+  );
+  
+  return $items;
+}
+
+function unipro_socrates_login_permission(){
+  return array(
+			'make socrates requests' => array(
+					'title' => t('Make Socrates Requests'),
+					'restrict access' => TRUE,
+  ),
+			'administer socrates login' =>  array(
+					'title' => t('Administer Socrates Login'),
+					'restrict access' => TRUE,
+  ),
+			'view store data' => array(
+					'title' => t('View Store Data'),
+					'restrict access' => TRUE,
+  ),
+			'view socrates login' => array(
+					'title' => t('View Socrates Login'),
+  )
+  );
+}
+
+/**
+ *	Tries a few combinations of the username to see
+ *	whether the username is valid
+ */
+function unipro_socrates_login_user_login_validate($form, &$form_state) {
+  if (isset($form_state['values']['name']) && $form_state['values']['name']) {
+	  $username = $form_state['values']['name'];
+	  // TODO code tidy review - watchdogs 		
+	  //watchdog('loginoverride', 'Username passed in of '.$username , WATCHDOG_INFO);
+		
+	  $loginuser = user_load_by_name($username);
+	  if(!$loginuser) {
+	    //watchdog('loginoverride', 'Unable to find user by that name' , WATCHDOG_INFO);
+	    if(strpos($username,'@')===false) {
+			$username.='@specsavers.com';
+	        //watchdog('loginoverride', 'No @ present; appending @specsavers.com' , WATCHDOG_INFO);
+			$loginuser = user_load_by_name($username);
+	    }
+	  }		
+	  if($loginuser) {
+	    //watchdog('loginoverride', 'User name changed to '.$loginuser->name , WATCHDOG_INFO);
+	    form_set_value($form['name'], $loginuser->name, $form_state);		
+	  }	
+	  //		else
+	  //watchdog('loginoverride', 'User name not changed' , WATCHDOG_INFO);
+		
+  }		
+}
+
+
+/*
+* Implements hook_form_alter().
+* Push login form validation to unipro_socrates_login_user_login_validate
+* so that we can run some checks against the username and alter
+* it accordingly
+*/
+function unipro_socrates_login_form_alter(&$form, &$form_state, $form_id) 
+{
+	switch ($form_id) 
+	{
+		case 'user_login':
+		case 'user_login_block':
+			// Ensure a valid validate array.
+			$form['#validate'] = is_array($form['#validate']) ? $form['#validate'] : array();
+			
+			// Ensure our validation function must run first.
+			array_unshift($form['#validate'],'unipro_socrates_login_user_login_validate');
+			break;
+	}
+}
+
+
+
+
+/**
+*	Implements hook_init().
+*	Makes a check for a call from Socrates and performs
+*	clear up on any existing object
+*/
+function unipro_socrates_login_init() 
+{
+	//	was there a call from Socrates?	
+	if (isset($_REQUEST['socrateslogin'])) 
+	{
+		//	log out current user - execute any module-related
+		//	code for this activity
+		global $user;
+		module_invoke_all('user_logout', $user);
+
+		// Destroy the current session
+		session_destroy();
+
+		// Load the anonymous user to clear any data
+  		$user = drupal_anonymous_user();
+		
+		// Start the session so we can pass through the
+		// URL parameters from Socrates
+		session_start();
+
+		// Set the session values of the URL parameters		
+		$_SESSION['socStoreNumber'] = $_REQUEST['storenumber'];
+		$_SESSION['socPermissions'] = $_REQUEST['permissionlevel'];
+	  	$_SESSION['socUser'] = $_REQUEST['loggedInUser'];
+
+		//	Redirect to socrates so we can load
+		//	the user/form
+		header ( 'Location: /socrates');
+	  
+		exit ();
+	}
+}
+
+
+function _unipro_socrates_login_callback() 
+{
+	$loggedInUser = $_SESSION['socUser'];
+	$permissionlevel = $_SESSION['socPermissions'];
+	$storenumber = $_SESSION['socStoreNumber'];
+
+	//	invoke any module logouts
+	global $user;
+	module_invoke_all('user_logout', $user);
+
+	$socrates_request = new SocratesRequest($loggedInUser, $permissionlevel, $storenumber);
+  	watchdog('socrates_request', 'New request for ' . $loggedInUser . ', level %level, store %store', array('%level' => $permissionlevel, '%store' => $storenumber) , WATCHDOG_INFO);
+
+	if ($socrates_request->check_username()) 
+	{
+    	// we have an existing user account
+
+    	if (!$socrates_request->validate_permissionlevel()) 
+    	{
+			drupal_set_message(t('User access denied, please contact the helpdesk (BPL).'), 'error');
+      		header('Location: /');
+		}
+		else 
+		{
+			$socrates_request->loaduser();
+		}
+
+	}
+	else 
+	{
+		// validate store id
+    	$store = _lookup_store($socrates_request->storenumber);
+    	if ($store != null) 
+    	{
+			//	display create_new_user form
+      		return drupal_get_form('unipro_socrates_login_register_form');
+    	}
+    	else
+    	{
+			// display error
+      		drupal_set_message(t('An error occurred while looking up your store details. Please contact the helpdesk (BSD).'), 'error');
+      		header('Location: /');
+		}
+	}
+}
+
+function unipro_socrates_login_register_form($form, &$form_state){
+  $form['field_fname'] = array(
+        '#title' => t('First Name'),
+        '#type' => 'textfield',
+        '#required' => TRUE,
+  );
+  $form['field_lname'] = array(
+        '#title' => t('Last Name'),
+        '#type' => 'textfield',
+        '#required' => TRUE,
+  );
+  $form['pass_fields'] = array(
+        '#description' => t('It is recommended that you use the same password here that you use to log into <br>SOCRATES. Whatever password you enter, make sure it is something you can <br>remember.  <br><br>Please enter the same password in both fields'),
+        '#type' => 'password_confirm',
+        '#size' => 32,
+  		'#maxlength' => 32,
+        '#required' => TRUE,
+  );
+  $form['submit'] = array(
+        '#type' => 'submit',
+        '#value' => t('Save'),
+  );
+  $form['username'] = array(
+		'#type' => 'hidden', 
+		'#value' => $_SESSION['socUser']
+  );
+  $form['permission_level'] = array(
+		'#type' => 'hidden', 
+		'#value' => $_SESSION['socPermissions']
+  );
+  $form['store_id'] = array(
+		'#type' => 'hidden', 
+		'#value' => $_SESSION['socStoreNumber']
+  );
+  return $form;
+}
+
+function unipro_socrates_login_register_form_submit($form, &$form_state)
+{
+
+	// create list of roles from supplied permission level to store in user object
+	$permission_level = $form_state['values']['permission_level'];
+	if ($permission_level != 3 && $permission_level != 2)
+		$permission_level = 1;
+
+	//	calculate roles
+	$role_filter_list = array();
+	switch ($permission_level) 
+	{
+		case 3:
+			array_push($role_filter_list, 'store director');
+		case 2:
+			array_push($role_filter_list, 'store manager');
+		default:
+			array_push($role_filter_list, 'store staff');
+	}
+
+	// load the system roles to get correct id mappings
+	$system_roles = user_roles();
+
+	//	get roles for this user
+	$new_roles = array_intersect($system_roles, $role_filter_list);
+
+	//	get name parts so that we can generate unique names in the event
+	//	that first and last names are identical within a store
+	$namePrefix = trim($form_state['values']['field_fname']) . '.' . trim($form_state['values']['field_lname']);
+	$nameSuffix = '@' . $form_state['values']['store_id'];
+
+	//	configure most of the new user fields
+	$edit = array(
+		'pass' => $form_state['values']['pass_fields'],
+		'mail' => $form_state['values']['username'] . '@' . $form_state['values']['store_id'],
+		'init' => $form_state['values']['username'] . '@' . $form_state['values']['store_id'],
+		'username' => $form_state['values']['username'],
+		'store_id' => $form_state['values']['store_id'],
+		'data' => array(
+			'permission_level' => $permission_level
+  		),
+		'status' => 1,
+		'access' => REQUEST_TIME,
+		'roles' => $new_roles,
+	);
+
+	//	persist the entered first and last names
+	$edit['field_firstname'][LANGUAGE_NONE][0]['value'] = trim($form_state['values']['field_fname']);
+	$edit['field_surname'][LANGUAGE_NONE][0]['value'] = trim($form_state['values']['field_lname']);
+    $edit['field_logintype'][LANGUAGE_NONE][0]['value'] = 'socrates';	
+	$edit['field_format'][LANGUAGE_NONE][0]['value'] = 'plain_text';
+  
+	// load the store
+	$store = _lookup_store($form_state['values']['store_id']);
+
+	// extract first entry and load full node data
+	$keys = array_keys($store);
+	$node = node_load($keys[0]);
+
+	// get the region id which we will use to get the location taxonomy term
+	$region_id = $node->field_tvregionid['und'][0]['value'];
+	$country_code = $node->field_countrycode['und'][0]['value'];
+  
+	if ($region_id == 0 || $region_id == 99) 
+	{
+		$store_region = _get_region_from_countrycode($country_code);
+		$timezone = _get_tz_from_countrycode($country_code);
+		$language = _get_lang_from_countrycode($country_code);
+		$regions = taxonomy_get_term_by_name($store_region);
+	}
+	else
+	{
+		$store_region = _get_region_from_tvid($region_id);
+		$timezone = _get_tz_from_tvid($region_id);
+		$language = _get_lang_from_tvid($region_id);
+		$regions = taxonomy_get_term_by_name($store_region);
+	}
+
+	// we will likely have multiple entries, make sure we have the one with the
+	// vocabulary_machine_name set to location as these are the site access roles
+	if (empty($regions)) 
+	{
+		drupal_set_message(t('Unable to create your account as no home location was available for your store. Please contact the helpdesk.'), 'error');
+		header('Location: /');
+		return;
+	}
+
+	foreach ( $regions as $region ) 
+	{
+		if ($region->vocabulary_machine_name == 'location')
+			$selected_region = $region;
+	}
+
+	$edit['field_default_hlocation'] [LANGUAGE_NONE] [0] ['tid'] = $selected_region->tid;
+	$edit['language'] = $language;
+	$edit['timezone'] = $timezone;
+	
+	//	presave function
+	unipro_custom_user_presave($edit , null , null);
+	
+	//	we need to make sure we have a unique username
+	$usernameFormat = "%s%s%s";
+	$usernameLoop = 0;
+	$username = "";
+	while($username == "")
+	{
+		$username = sprintf(
+			$usernameFormat, 
+			$namePrefix, 
+			($usernameLoop == 0 ? "" : $usernameLoop),
+			$nameSuffix
+		);
+		
+		$usernameLoop++;
+		
+		if(user_load_by_name($username))
+			$username = "";
+	}
+
+	//	username should now be unique
+	$edit['name'] = $username;
+	
+	//	create the new user
+	user_save(drupal_anonymous_user(), $edit);
+	
+	//reload user object from db
+	$user_object = user_load_by_mail($edit['mail']);
+	
+	$GLOBALS['user'] = $user_object;
+	$user_array = (array)$user_object;
+	user_login_finalize($user_array);
+	
+	// redirect to home page
+	$form_state['redirect'] = '';
+}
+
+function unipro_socrates_login_uri($socrates_request){
+  return array(
+			'path' => 'socrates_request/' . $socrates_request->rid,
+  );
+
+}
+
+function _get_region_from_tvid($id) {
+	
+	switch ($id) {
+		case 1: return 'Meridian West';
+		case 2: return 'WCTV';
+		case 3: return 'HTV';
+		case 4: return 'Central East';
+		case 5: return 'Scotland';
+		case 6: return 'Carlton North';
+		case 7: return 'Central West';
+		case 8: return 'Anglia';
+		case 10: return 'RTE';
+		case 11: return 'Central South';
+		case 12: return 'Granada';
+		case 12: return 'Meridian West';
+		case 14: return 'Yorkshire';
+		case 15: return 'Tyne Tees';
+		case 16: return 'Ulster';
+		case 17: return 'Central';
+		case 19: return 'Netherlands';
+		case 20: return 'Meridian East';
+		case 21: return 'Carlton South';
+		case 29: return 'Sweden';
+		case 30: return 'Spain';
+		case 31: return 'Finland';
+		//case 32: return 'Australia';
+		case 57: return 'ACT';
+		case 58: return 'New South Wales';
+		case 59: return 'Northern Territory';
+		case 60: return 'Queensland';
+		case 61: return 'Southern Australia';
+		case 62: return 'Tasmania';
+		case 63: return 'Victoria';
+		case 64: return 'Western Australia';
+	}
+	return 'No Region';	
+}
+
+function _get_lang_from_tvid($id) {
+	switch ($id) {
+		case 1:
+		case 2:
+		case 3:
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+		case 8:
+		case 10:
+		case 11:
+		case 12:
+		case 14:
+		case 15:
+		case 16:
+		case 17:
+		case 20:
+		case 21:
+		case 30:
+		case 57:
+		case 58:
+		case 59:
+		case 60:
+		case 61:
+		case 62:
+		case 63:
+		case 64:
+			return 'en';
+		case 19: return 'nl';
+		case 29: return 'sv';
+		case 31: return 'fi';
+	}
+	return 'en';
+}
+
+function _get_tz_from_tvid($id) {
+	switch ($id) {
+		case 1:
+		case 2:
+		case 3:
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+		case 8:
+		case 10:
+		case 11:
+		case 12:
+		case 14:
+		case 15:
+		case 16:
+		case 17:
+		case 20:
+		case 21:
+		case 30:
+			return 'Europe/London';
+		case 19: return 'Europe/Amsterdam';
+		case 29: return 'Europe/Stockholm';
+		case 31: return 'Europe/Helsinki';
+		case 57: return 'Australia/Melbourne';
+		case 58: return 'Australia/Melbourne';
+		case 59: return 'Australia/Darwin';
+		case 60: return 'Australia/Brisbane';
+		case 61: return 'Australia/Adelaide';
+		case 62: return 'Australia/Hobart';
+		case 63: return 'Australia/Melbourne';
+		case 64: return 'Australia/Perth';
+	}
+	return 'UTC';
+}
+
+function _get_region_from_countrycode($id) {
+	switch ($id) {
+		case 2: return 'Netherlands';
+		case 6: return 'Sweden';
+		case 7: return 'Norway';
+		case 8: return 'Denmark';
+		case 15: return 'Finland';
+		case 17: return 'New Zealand';
+	}
+	return 'No Region';
+}
+
+function _get_lang_from_countrycode($id) {
+	switch ($id) {
+		case 2: return 'nl';
+		case 6: return 'sv';
+		case 7: return 'nb';
+		case 8: return 'da';
+		case 15: return 'fi';
+	}
+	return 'en';
+}
+
+function _get_tz_from_countrycode($id) {
+	switch ($id) {
+		case 2: return 'Europe/Amsterdam';
+		case 6: return 'Europe/Stockholm';
+		case 7: return 'Europe/Oslo';
+		case 8: return 'Europe/Copenhagen';
+		case 15: return 'Europe/Helsinki';
+		case 17: return 'Pacific/Auckland';
+	}
+	return 'UTC';
+}
+
+function unipro_socrates_login_load($pid = NULL, $reset = FALSE){
+  $pids = (isset ($pid) ? array($pid) : array());
+  $socrates_request = unipro_socrates_login_load_multiple($pids, $reset);
+  return $socrates_request ? reset ($socrates_request) : FALSE;
+}
+
+function unipro_socrates_login_load_multiple($pids = array(), $conditions = array(), $reset = FALSE){
+  return entity_load('socrates_request', $pids, $conditions, $reset);
+}
+
+function _lookup_store($number) {
+    // query db stores objects to see if store is present
+    
+    $query = new EntityFieldQuery();
+    $result = $query->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', 'store')
+    ->propertyCondition('status', 1)
+    ->fieldCondition('field_number', 'value', $number, '=')
+    ->addMetaData('account', user_load_by_mail('store_data@theuniprogroup.com'))
+	->execute()
+    ;
+
+    if (!empty($result['node'])) {
+      return $result['node'];
+    }
+    return null;
+  }
+
+class SocratesRequest {
+
+  const SOCRATES_LOGGED_IN = 0;
+  const SOCRATES_CREATED_NEW_USER = 1;
+  const SOCRATES_REJECTED_REQUEST = 2;
+  
+  var $username, $permission_level, $storenumber, $user, $store;
+
+  function __construct($p1 = 'Unset', $p2 = '0', $p3 = '0') {
+
+    $this->username = $p1;
+    $this->permission_level = $p2;
+    $this->storenumber = $p3;
+
+  }
+
+  public function check_username() {
+    // does user exist in drupal?
+    $this->user = user_load_by_mail($this->username . '@' . $this->storenumber);
+    if($this->user) {
+        return true;
+    } 
+    return false;
+  }
+  
+  public function validate_permissionlevel() {
+     
+    $role_filter_list = array();
+    switch ($this->permission_level) {
+      case 3:
+        array_push($role_filter_list, 'store director');
+        break;
+      case 2:
+        //manager has been deprecated, so add standard level so that users with permission 
+        // level 2 still get set up as a standard staff user
+        array_push($role_filter_list, 'store manager');
+      default:
+        array_push($role_filter_list, 'store staff');
+    }
+
+    // load the user roles 
+    $saved_roles = $this->user->roles;
+    $found_roles = array_intersect($saved_roles, $role_filter_list);
+    if(empty($found_roles)) {
+        // redirect to home page without loading user since office user should login as normal
+        header("Location: /");
+        return false;
+      }
+    return true;
+  }
+
+  public function loaduser() {
+    $user_object = $this->user;
+    
+    $GLOBALS['user'] = $user_object;
+    $user_array = (array)$user_object;
+
+    user_login_finalize($user_array);
+    
+    header('Location: /');
+  }
+}

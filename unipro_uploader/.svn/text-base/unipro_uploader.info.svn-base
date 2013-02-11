@@ -1,0 +1,6 @@
+name = Unipro Uploader
+description = "Custom file uploader for Unipro."
+core = 7.x
+version = RC1.0
+package = Unipro Custom
+dependencies[] = unipro_custom

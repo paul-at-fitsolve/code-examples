@@ -1,0 +1,2756 @@
+<?php
+
+// $Id$
+
+/**
+ * @file
+ * A set of reusable custom functions for handling fundamental tasks such as
+ * taxonomy walking.
+ */
+
+/**
+ * Implementation of hook_init() {
+ */
+function unipro_custom_init() {
+  drupal_add_css ( drupal_get_path ( 'module', 'unipro_custom' ) . '/css/node_form_alter.css' );
+  drupal_add_css ( drupal_get_path ( 'module', 'unipro_custom' ) . '/css/term_form_alter.css' );
+  // Adding JQuery UI Dialog support.
+  drupal_add_library ( 'system', 'ui.dialog' );
+  drupal_add_library ( 'system', 'effects.slide' );
+}
+/**
+ * Implements hook_user_presave().
+ * http://api.drupal.org/api/drupal/includes--module.inc/group/hooks
+ * Automatically sets the user's territory from their home location, on user
+ * create and edit.
+ *
+ * @param $edit user
+ *          The array of form values submitted by the user.
+ * @param $account unknown_type
+ *          The user object on which the operation is performed.
+ * @param $category unknown_type
+ *          The active category of user information being edited.
+ */
+function unipro_custom_user_presave(&$edit, $account, $category) {
+  // When creating or editing a user check their home location and set the
+  // appropriate territory.
+  
+  /**
+   * This code hardened slightly as sometimes users did not have hlocation set
+   * which casued problems later on
+   * this is fixed below by setting hlocation to 0
+   * which should make any later array_flip operations a bit less buggy
+   *
+   * Problem with setting TID to 0 which causes failure later on when user is
+   * saved
+   * so removed it.
+   */
+  $vid = VID_SITE_ACCESS_ROLES;
+  
+  if (isset ( $edit ['field_default_hlocation'] [LANGUAGE_NONE] [0] ['tid'] )) {
+    if (is_null ( $edit ['field_default_hlocation'] [LANGUAGE_NONE] [0] ['tid'] )) {
+      // do nothing
+    } else {
+      $hlocation = $edit ['field_default_hlocation'] [LANGUAGE_NONE] [0] ['tid'];
+    }
+    
+    if (! empty ( $hlocation )) {
+      $fulltree = taxonomy_get_tree ( $vid );
+      foreach ( $fulltree as $term ) {
+        if ($term->tid == $hlocation) {
+          $depth = $term->depth;
+          break;
+        }
+      }
+      $tlocation = ($depth == 1) ? $term->tid : $term->parents [0];
+      $edit ['field_default_tlocation'] [LANGUAGE_NONE] [0] ['tid'] = $tlocation;
+    }
+  } else {
+    // do nothing
+  }
+}
+
+function unipro_custom_menu_alter(&$callback) {
+  //Remove the request new password tab.
+  unset($callback['user/password']);
+}
+// ******* Private Functions ********
+/**
+ * Helper function that returns the given user's site information.
+ *
+ * @param $uid The
+ *          unique user id of the user to be processed.
+ * @param $type Specifies
+ *          which values are required:
+ *          'home' - returns the user's current home site.
+ *          In the case of office users, this is not necessarily their true
+ *          homesite but will be the
+ *          current site they have switched into via the location switcher.
+ *          In the case of store users, it will always be their default home
+ *          site.
+ *          'author' - returns the locations where the user is permitted to add
+ *          content.
+ *          'primary' - returns the locations where the user is permitted to
+ *          view sensitive content.
+ *          'territory' - returns the user's home territory.
+ *          'site' - the default territory of the user.
+ *          In the case of office users, this is not necessarily their true home
+ *          territory but will be the
+ *          current site they have switched into via the location switcher.
+ *          In the case of store users, it will always be their default
+ *          territory.
+ * @return An indexed array containing a set of TIDS or FALSE if the user does
+ *         not have the requested values
+ *         in their profile.
+ */
+function _unipro_custom_get_user_profile_tids($uid, $type = 'home') {
+  $error_msgs = array ('InvalidUID' => 'Invalid user id:' . $uid, 'InvalidTYPE' => 'Invalid type:' . $type );
+  $results = array ();
+  $account = user_load ( $uid );
+  if ($account) {
+    switch ($type) {
+      case 'home' :
+        if (isset ( $account->field_hlocation [LANGUAGE_NONE] )) {
+          foreach ( $account->field_hlocation [LANGUAGE_NONE] as $tid ) {
+            $results [] = $tid ['tid'];
+          }
+        } else {
+          $results = FALSE;
+        }
+        break;
+        case 'default' :
+          if (isset ( $account->field_default_hlocation [LANGUAGE_NONE] )) {
+            foreach ( $account->field_default_hlocation [LANGUAGE_NONE] as $tid ) {
+              $results [] = $tid ['tid'];
+            }
+          } else {
+            $results = FALSE;
+          }
+          break;
+      case 'author' :
+        if (isset ( $account->field_alocation [LANGUAGE_NONE] )) {
+          foreach ( $account->field_alocation [LANGUAGE_NONE] as $tid ) {
+            $results [] = $tid ['tid'];
+          }
+        } else {
+          $results = FALSE;
+        }
+        break;
+      case 'primary' :
+        if (isset ( $account->field_pstores [LANGUAGE_NONE] )) {
+          foreach ( $account->field_pstores [LANGUAGE_NONE] as $tid ) {
+            $results [] = $tid ['tid'];
+          }
+        } else {
+          $results = FALSE;
+        }
+        break;
+      case 'territory' :
+        if (isset ( $account->field_tlocation [LANGUAGE_NONE] )) {
+          foreach ( $account->field_tlocation [LANGUAGE_NONE] as $tid ) {
+            $results [] = $tid ['tid'];
+          }
+        } else {
+          $results = FALSE;
+        }
+        break;
+      case 'site' :
+        if (isset ( $account->field_default_tlocation [LANGUAGE_NONE] )) {
+          foreach ( $account->field_default_tlocation [LANGUAGE_NONE] as $tid ) {
+            $results [] = $tid ['tid'];
+          }
+        } else {
+          $results = FALSE;
+        }
+        break;
+      default :
+        // Trap calls with invalid type.
+        _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['InvalidTYPE'] );
+    }
+    return $results;
+  } else {
+    // Trap calls to invalid user ids.
+    _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['InvalidUID'] );
+  }
+}
+
+/**
+ * This function is for the generation of the top-menu data.
+ * This is to allow the weight order to be preserved.
+ * The related function is _unipro_custom_get_taxonomy_hierarchy which is used 
+ * elsewhere in the system to generate a hierarchical array of sitemap data but which currently does not
+ * preserve the weighting order.
+ * @param unknown_type $vid - The vocabulary from which the hierarchy should be generated. 
+ * @param unknown_type $parent - The starting point for the hierarchy, 0 means root.
+ * @param unknown_type $max_depth - The number of layers of depth which should be produced.
+ * @param unknown_type $load_entities - True means fully load the object.
+ * @param unknown_type $territory_sensitive
+ * @return Ambigous A multi-dimensional array containing the Sitmap in a form that is
+ * required by the theme layer.
+ */
+
+
+function _unipro_custom_get_taxonomy_hierarchy_tm($vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE, $territory_sensitive = FALSE) {
+
+  $level1 = taxonomy_get_children($parent);
+  foreach ($level1 as &$menuitem) {
+    $menuitem->depth = 0;
+    $menuitem->children = taxonomy_get_children($menuitem->tid);
+    foreach($menuitem->children as &$child){
+      $child->depth = 1;
+      $child->children  = taxonomy_get_children($child->tid);
+    }
+  }
+  return $level1;
+}
+
+/**
+ * Builds a multi-dimensional array containing a hierarchical taxonomy, with
+ * references to parent and children terms.
+ *
+ * @param $vid Integer
+ *          The vocabulary identity number which is to be processed.
+ * @param $parent Integer
+ *          A taxonomy term identity number of a term within $vid. This will
+ *          become the top of the tree produced by the function.
+ *          If 0, generate the tree for the entire vocabulary.
+ * @param $max_depth Integer
+ *          The number of levels of the tree to return. Leave NULL to return all
+ *          levels.
+ * @param $load_entities Boolean
+ *          If TRUE, a full entity load will occur on the term objects.
+ *          Otherwise they are partial objects queried directly from the
+ *          {taxonomy_term_data} table to save execution time
+ *          and memory consumption when listing large numbers of terms. Defaults
+ *          to FALSE.
+ * @return Ambiguous <multitype:, unknown>
+ *         An array of all term objects in the tree. Each term object is
+ *         extended to have "depth" and "parents" and "children" attributes in
+ *         addition to its normal ones.
+ *         Results are statically cached.
+ *         Term objects will be partial or complete depending on the
+ *         $load_entities parameter.
+ */
+
+
+function _unipro_custom_get_taxonomy_hierarchy($vid, $parent = 0, $max_depth = NULL, $load_entities = FALSE, $territory_sensitive = FALSE) {
+  $tree = array ();
+  $terms = array ();
+  foreach ( taxonomy_get_tree ( $vid, $parent, $max_depth, $load_entities ) as $term ) {
+    if (isset ( $terms [$term->tid]->children )) {
+      $term->children = $terms [$term->tid]->children;
+      $terms [$term->tid] = $term;
+    } else {
+      $terms [$term->tid] = $term;
+    }
+    if ($term->depth == 0) {
+      $tree [$term->tid] = &$terms [$term->tid];
+      continue;
+    }
+    foreach ( $term->parents as $tid ) {
+      if ($tid) {
+        if (! isset ( $terms [$tid] )) {
+          $terms [$tid] = new stdClass ();
+        }
+        $terms [$tid]->children [$term->tid] = &$terms [$term->tid];
+      }
+    
+    }
+  }
+  return $tree;
+}
+
+/**
+ * Recursive function that processes a taxonomy term provided by
+ * _unipro_custom_get_taxonomy_hierarchy.
+ * It will not work properley with Drupal's standard taxonomy_get_tree function.
+ * The function processes the term and builds an array containing data required
+ * for the top menu. This is passed
+ * to customised theme functions.
+ * The function filters out all the terms that the user should not see.
+ * It filters out terms that belong to territories other than the one the user
+ * is in.
+ * It filters out hearcare specific terms when the user is looking at the
+ * optical site and vice versa.
+ *
+ * @param
+ *          Taxonomy Term $term
+ *          The taxonomy term object to be processed.
+ * @return array <string, number>
+ *         A multi-dimensional array containing a filtered set of menu location.
+ *         The following data exists for each menu item:
+ *         Title - term name,
+ *         Key - TID,
+ *         Depth - an integer denoting the relative depth of this term in the
+ *         overall hierarchy.
+ *         Node count - all the nodes on the system that are tagged with the
+ *         term.
+ *         Node - an array of nodes with their titles and NIDS.
+ *         Term Count - an integer giving all the children terms of this term.
+ */
+function _unipro_custom_set_hierarchical_array($term) {
+  // Basic check that we have an object here and not some other data type.
+  if (is_object ( $term )) {
+    global $user; // This is always a reference to the current logged in user.
+    global $theme; // This is always a reference to the current theme.
+    $output = array (); // This is what is returned as an array of data that
+                        // will
+                        // be themed before rendering as HTML.
+    $htids = _unipro_custom_get_user_profile_tids ( $user->uid, 'home' );
+    $output ['title'] = $term->name;
+    $output ['key'] = $term->tid;
+    $output ['depth'] = isset($term->depth) ? $term->depth : null;
+    $nids = taxonomy_select_nodes ( $term->tid, TRUE, FALSE );
+    $output ['node_count'] = count ( $nids );
+    $output ['node'] = array ();
+    
+    // Walk the array of nodes tagged with the term and extract the title and
+    // node id to add to the output.
+    foreach ( $nids as $nid ) {
+      $node = node_load ( $nid );
+      $output ['node'] [] = array ('title' => $node->title, 'nid' => $node->nid );
+    }
+    
+    $output ['term_count'] = '0';
+    
+    // If this term has children then these are processed using a recursive
+    if (isset ( $term->children )) {
+      $output ['term_count'] = count ( $term->children );
+      
+      foreach ( $term->children as $child ) {
+        // if this term is tagged with the user's hlocation then return
+        // otherwise block!!
+        $accesstokens = array ();
+        $accesstokens = _unipro_custom_get_access_tokens ( $child->tid );
+        
+        if ($accesstokens) {
+          // Access tokens have been found for this term so access checks are
+          // made against the term NOT its parents.
+          // Check if the user's home location is contained within the
+          // $accesstokens array. If it is then the user is allowed to
+          // see the term.
+          if ((in_array ( $htids [0], $accesstokens ))) {
+            // The user is allowed to see this term.
+            // If the user is viewing content on the Stores site it must be
+            // filtered by type (Optical and Hearing).
+            // So we correlate the current theme against the term type.
+            if (($theme === 'specsavers') && (_unipro_custom_is_optical ( $child->tid ))) {
+              // The term is part of the optical site and the user is viewing
+              // that site,
+              // so add the term to the output.
+              $output ['children'] [] = _unipro_custom_set_hierarchical_array ( $child );
+            } elseif (($theme === 'specsavers_hearing') && (_unipro_custom_is_hearcare ( $child->tid ))) {
+              // The term is part of the hearing site and the user is viewing
+              // that site,
+              // so add the term to the output.
+              $output ['children'] [] = _unipro_custom_set_hierarchical_array ( $child );
+            } elseif ($theme === 'specsavers_offices') {
+              // If the user is looking at the offices site just add the term to
+              // the output.
+              $output ['children'] [] = _unipro_custom_set_hierarchical_array ( $child );
+            }
+          }
+        } else {
+          // There are no access tokens on this term so we must derive access
+          // rights from the term's ancestors.
+          // Get all the parent terms in an array $parents.
+          $parents = taxonomy_get_parents_all ( $child->tid );
+          // Walk through the array and examine each parent object.
+          foreach ( $parents as $parent ) {
+            
+            if (isset ( $parent->field_access_control ['und'] )) {
+              // The parent has access control variables, so gather them into
+              // the $accesstokens array.
+              foreach ( $parent->field_access_control ['und'] as $ac ) {
+                $accesstokens [] = $ac ['tid'];
+              }
+              // Access tokens have been found for this term so access checks
+              // are made against the term.
+              // Check if the user's home location is contained within the
+              // $accesstokens array. If it is then the user is allowed to
+              // see the term.
+              if ((in_array ( $htids [0], $accesstokens ))) {
+                // The user is allowed to see this term.
+                // If the user is viewing content on the Stores site it must be
+                // filtered by type (Optical and Hearing).
+                // So we correlate the current theme against the term type.
+                if (($theme === 'specsavers') && (_unipro_custom_is_optical ( $child->tid ))) {
+                  // The term is part of the optical site and the user is
+                  // viewing that site,
+                  // so add the term to the output.
+                  $output ['children'] [] = _unipro_custom_set_hierarchical_array ( $child );
+                } elseif (($theme === 'specsavers_hearing') && (_unipro_custom_is_hearcare ( $child->tid ))) {
+                  // The term is part of the hearing site and the user is
+                  // viewing that site,
+                  // so add the term to the output.
+                  $output ['children'] [] = _unipro_custom_set_hierarchical_array ( $child );
+                } elseif ($theme === 'specsavers_offices') {
+                  // If the user is looking at the offices site just add the
+                  // term to the output.
+                  $output ['children'] [] = _unipro_custom_set_hierarchical_array ( $child );
+                }
+              }
+              break; // Stop processing as soon as we find a parent with some
+                       // terms set.
+            }
+          }
+        }
+      }
+    }
+    return $output;
+  }
+}
+
+/**
+ *
+ *
+ *
+ * Function to create an array containing data for a Dynatree representation of
+ * the Sitemap.
+ * http://code.google.com/p/dynatree/
+ * The code will construct an array containing all the terms that are relevant
+ * within all the
+ * author locations of the current user.
+ * The code will operate recursively through all layers of the hierarchy using
+ * the passed term as the parent and respond with the
+ * entire tree.
+ *
+ * @param $term The
+ *          term to act as the parent.
+ */
+function _unipro_custom_set_dynatree_array($term) {
+  // Set error messages.
+  $error_msgs = array ('InvalidTERM' => 'Invalid term passed:' . $term->name );
+  // Basic check that we are dealing with an object.
+  if (is_object ( $term )) {
+    global $user; // Always the current logged in user.
+                  // Get the current user's alocations which determine where on
+                  // the site they can create and edit content.
+    $alocs = _unipro_custom_get_user_profile_tids ( $user->uid, 'author' );
+    
+    // Get the currently set
+    $mtids = (is_array ( $_SESSION ['node_mtids'] )) ? $_SESSION ['node_mtids'] : array ($_SESSION ['node_mtids'] );
+    $output ['title'] = $term->name;
+    $output ['key'] = $term->tid;
+    $output ['depth'] = $term->depth;
+    $output ['select'] = (in_array ( $term->tid, $mtids )) ? TRUE : FALSE;
+    $output ['hideCheckbox'] = ($term->depth < 2) ? TRUE : FALSE;
+    if (isset ( $term->children )) {
+      foreach ( $term->children as $child ) {
+        $accesstokens = array ();
+        $accesstokens = _unipro_custom_get_access_tokens ( $child->tid );
+        if ($accesstokens) {
+          $intersection = array_intersect ( $accesstokens, $alocs );
+          if (count ( $intersection ) > 0) {
+            $output ['children'] [] = _unipro_custom_set_dynatree_array ( $child );
+          }
+        } else {
+          $parents = taxonomy_get_parents_all ( $child->tid );
+          foreach ( $parents as $parent ) {
+            if (isset ( $parent->field_access_control ['und'] )) {
+              foreach ( $parent->field_access_control ['und'] as $ac ) {
+                $accesstokens [] = $ac ['tid'];
+              }
+            }
+          }
+          if ($accesstokens) {
+            $intersection = array_intersect ( $accesstokens, $alocs );
+            if (count ( $intersection ) > 0) {
+              $output ['children'] [] = _unipro_custom_set_dynatree_array ( $child );
+            }
+          }
+        }
+      }
+    }
+    return $output;
+  } else {
+    _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['InvalidTERM'] );
+  }
+}
+
+/**
+ * Returns an array of access control tids that are associated with a node.
+ *
+ * Helper function to return an array containing all the tids that are tagged on
+ * the
+ * mlocation tids that are tagged on the node.
+ *
+ * @param $node object
+ *          The node object for the function to operate on.
+ * @param $unique boolean
+ *          If set to TRUE then duplicates are removed from the array.
+ *          Duplicates arise
+ *          from multiple mlocations that are tagged with the same access
+ *          control tids.
+ *          Defaults to FALSE.
+ *         
+ * @return An indexed array of tids as strings. False if the node has no
+ *        
+ *         associated mlocations.
+ */
+function _unipro_custom_get_access_control_tids($node, $unique = FALSE, $supress = false, $type = 'tids') {
+  if (!is_object($node)) {
+    return false;
+  }
+  $node_title = isset ( $node->title ) ? $node->title : 'Untitled';
+  $error_msgs = array ('NoMLocation' => 'No Sitemap Location set for ' . $node_title, 'NoAccessControl' => $node_title . '(' . $node->nid . ') is an orphan article.' ,
+      'BadSitemap' => $node_title . '(' . $node->nid . ') is tagged with non-existant Sitemap term - ' );
+  if (! (isset ( $node->field_mlocation [LANGUAGE_NONE] ))) {
+    _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['NoMLocation'] , 'error' , true );
+    return false;
+  }
+  $actids = array ();
+  $flag_badsitemap = false;
+  foreach ( $node->field_mlocation [LANGUAGE_NONE] as $location ) {
+    
+    // Check the term exists on Sitemap.
+    
+    $query = db_select ( 'taxonomy_term_data', 'td' );
+    $query->fields ( 'td', array ('tid', 'vid' ) );
+    $query->condition ( 'tid', $location ['tid'] );
+    $query->condition ( 'vid', VID_SITEMAP );
+    $result = $query->execute ();
+    
+    if (! ($result->rowCount ())) {
+      $flag_badsitemap = true;
+      $error_msgs['BadSitemap'] = $error_msgs['BadSitemap'] . $location ['tid'];
+    
+    } else {
+      
+      // Get all the access control tids that are tagged on the Sitemap term.
+      
+      $query = db_select ( 'field_data_field_access_control', 'l' );
+      $query->fields ( 'l', array ('field_access_control_tid' ) );
+      $query->condition ( 'entity_id', $location ['tid'] );
+      $result = $query->execute ();
+      if (! ($result->rowCount ())) {
+        $pactids  = _unipro_custom_get_parent_tids ( $location ['tid'], TRUE );
+        foreach($pactids as $tid){
+        if ($unique) {
+            if (! (in_array ( $tid, $actids ))) {
+              $actids [] = $tid;
+            }
+          } else {
+            $actids [] = $record->field_access_control_tid;
+          }
+        }
+      } else {
+        
+        foreach ( $result as $record ) {
+          if ($unique) {
+            if (! (in_array ( $record->field_access_control_tid, $actids ))) {
+              $actids [] = $record->field_access_control_tid;
+            }
+          } else {
+            $actids [] = $record->field_access_control_tid;
+          }
+        }
+      }
+    }
+  }
+  // Finished parsing all mlocations - what's the overall result?
+  if (empty ( $actids )) {
+    _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['NoAccessControl'] ,'warning' , $supress );
+    return false;
+  } else {
+    if ($flag_badsitemap) {
+      _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['BadSitemap'], 'warning' , $supress );
+    }
+    if($type=='names'){
+      $names=array();
+      foreach ($actids as $tid){
+        $name = taxonomy_term_load($tid);
+        if ($name != null){
+          $names[]=taxonomy_term_load($tid)->name;
+        }
+      }
+      return $names;
+    }
+    return $actids;
+  }
+}
+
+/**
+ *
+ *
+ *
+ * Helper function to get the access control tids that are set on the parents of
+ * a Sitemap term.
+ * This function supports the inheritence model for access control.
+ * When a Sitemap term is not tagged with any access control tids, then this
+ * function can be called to find the access control tids that are set on the
+ * parents of the Sitemap term.
+ *
+ * @param $tid A
+ *          tid from the Sitemap vocabulary.
+ * @param $unique When
+ *          set to true the function will remove any duplicate tids from the
+ *          returned array.
+ * @return $actids An indexed array containing all the access control tids of a
+ *         parent of $tid.
+ *         False if there are no access control tids set on any of the parents
+ *         of $tid.
+ */
+function _unipro_custom_get_parent_tids($tid, $unique = TRUE) {
+  $term_name = taxonomy_term_load ( $tid );
+  if (! $term_name) {
+    _unipro_custom_error_handler ( __FUNCTION__, 'Taxonomy Term ' . $tid . ' does not exist in Sitemap. Access control cannot be set on any content that is solely tagged with this term.' );
+    return false;
+  }
+  $error_msgs = array ('NoAccessControl' => 'No Access Control TIDS set for ' . taxonomy_term_load ( $tid )->name . 'tid:' . $tid . ',' . taxonomy_term_load ( $tid )->name );
+  $actids = array ();
+  $parents = taxonomy_get_parents_all ( $tid );
+  foreach ( $parents as $parent ) {
+    $query = db_select ( 'field_data_field_access_control', 'l' );
+    $query->fields ( 'l', array ('field_access_control_tid' ) );
+    $query->condition ( 'entity_id', $parent->tid );
+    $result = $query->execute ();
+    if ($result->rowCount ()) {
+      
+      //We've found a parent with access control set so retreive all the access control tids and return them.
+      foreach ( $result as $record ) {
+        if ($unique) {
+          if (! (in_array ( $record->field_access_control_tid, $actids ))) {
+            $actids [] = $record->field_access_control_tid;
+          }
+        } else {
+          $actids [] = $record->field_access_control_tid;
+        }
+      }
+      return $actids;
+    }
+  }
+  
+ // We only get here if no parents have access control set.
+ // So here we will return an empty array and let _unipro_custom_get_access_control_tids handle the situation.
+  
+ return array();
+}
+
+/**
+ *
+ *
+ *
+ * Helper function to get all the Sitemap tids that are tagged with a user's
+ * alocations.
+ * This includes those tags that are not themselves tagged but which inherit
+ * their access control
+ * settings from an ancestor.
+ *
+ * @param $uid -
+ *          A user id that identifies a user.
+ * @param $unique -
+ *          If true then the function will remove duplicates, for example when a
+ *          tag and one of its
+ *          ancestors are both taged with the same access control tag.
+ * @param $filter -         
+ * @return $atids - an array of TIDS that are all the sitemap tags that the iser
+ *         is allowed to write to.
+ */
+function _unipro_custom_get_atids($uid, $unique = FALSE, $filter = TRUE) {
+  $user = user_load ( $uid );
+  if (! (isset ( $user->field_alocation [LANGUAGE_NONE] ))) {
+    return FALSE;
+  }
+  $atids = array ();
+  foreach ( $user->field_alocation [LANGUAGE_NONE] as $location ) {
+    $query = db_select ( 'field_data_field_access_control', 'ac' );
+    $query->join ( 'taxonomy_term_data', 't', 'ac.entity_id = t.tid' );
+    $query->addField ( 'ac', 'entity_id', 'entity_id' );
+    $query->addField ( 't', 'name', 'name' );
+    $query->addField ( 't', 'tid', 'tid' );
+    $query->condition ( 'ac.field_access_control_tid', $location );
+    $result = $query->execute ();
+    foreach ( $result as $record ) {
+      if ($unique) {
+        if (! (in_array ( $record->tid, $atids ))) {
+          $atids [] = $record->tid;
+        }
+      } else {
+        $atids [] = $record->tid;
+      }
+    }
+  }
+  // Filter out tids when parents are tagged with same access location.
+  if ($filter) {
+    foreach ( $atids as $key => $tid ) {
+      $parents = _unipro_custom_get_parents ( $tid );  // This only returns the ancestors of the first parent
+      if (count ( $parents ) > 0) {
+        foreach ( $parents as $parent ) {
+          if (in_array ( $parent, $atids )) {
+            unset ( $atids [$key] );
+          }
+          // MD - Also check if any of the parents have multiple parents
+          // This function needs refactoring
+          $count_parents = count ( taxonomy_get_parents ( $parent ) );
+          $multiple_parents = ($count_parents > 1) ? TRUE : FALSE;
+          if ($multiple_parents) {
+            unset ( $atids [$key] );
+          }
+        }
+      }
+      foreach ( $atids as $key => $tid ) {
+        // Check if term has multiple or single parents
+        $count_parents = count ( taxonomy_get_parents ( $tid ) );
+        $multiple_parents = ($count_parents > 1) ? TRUE : FALSE;
+        if ($multiple_parents) {
+          unset ( $atids [$key] );
+        }
+      }
+    }
+  }
+  return $atids;
+}
+
+
+/**
+ *
+ *
+ *
+ * Helper function to get all the Sitemap tids that are tagged with a user's
+ * hlocations.
+ * This includes those tags that are not themselves tagged but which inherit
+ * their access control
+ * settings from an ancestor.
+ * This gives a branch of the Sitemap which is the user's total site.
+ *
+ * @param $uid -
+ *          A user id that identifies a user.
+ * @param $unique -
+ *          If true then the function will remove duplicates, for example when a
+ *          tag and one of its
+ *          ancestors are both taged with the same access control tag.
+ * @param $filter - Filter out tids when parents are tagged with same access location.
+ * @return $atids - an array of TIDS that are all the sitemap tags that the iser
+ *         is allowed to write to.
+ */
+function _unipro_custom_get_sitemap_branch($uid, $unique = FALSE, $filter = TRUE) {
+  $user = user_load ( $uid );
+  if (! (isset ( $user->field_hlocation [LANGUAGE_NONE] ))) {
+    return FALSE;
+  }
+  $atids = array ();
+  foreach ( $user->field_hlocation [LANGUAGE_NONE] as $location ) {
+    $query = db_select ( 'field_data_field_access_control', 'ac' );
+    $query->join ( 'taxonomy_term_data', 't', 'ac.entity_id = t.tid' );
+    $query->addField ( 'ac', 'entity_id', 'entity_id' );
+    $query->addField ( 't', 'name', 'name' );
+    $query->addField ( 't', 'tid', 'tid' );
+    $query->condition ( 'ac.field_access_control_tid', $location );
+    $result = $query->execute ();
+    foreach ( $result as $record ) {
+      if ($unique) {
+        if (! (in_array ( $record->tid, $atids ))) {
+          $atids [] = $record->tid;
+        }
+      } else {
+        $atids [] = $record->tid;
+      }
+    }
+  }
+  // Filter out tids when parents are tagged with same access location.
+  if ($filter) {
+    foreach ( $atids as $key => $tid ) {
+      $parents = _unipro_custom_get_parents ( $tid );
+      if (count ( $parents ) > 0) {
+        foreach ( $parents as $parent ) {
+          if (in_array ( $parent, $atids )) {
+            unset ( $atids [$key] );
+          }
+        }
+      }
+      foreach ( $atids as $key => $tid ) {
+        // Check if term has multiple or single parents
+        $count_parents = count ( taxonomy_get_parents ( $tid ) );
+        $multiple_parents = ($count_parents > 1) ? TRUE : FALSE;
+        if ($multiple_parents) {
+          unset ( $atids [$key] );
+        }
+      }
+    }
+  }
+  return $atids;
+}
+
+
+
+/**
+ *
+ *
+ *
+ * Helper function to return all the mlocations on a node as a set of strings
+ * in a single array - a simplified data structure.
+ *
+ * @param $nid -
+ *          The node for which the mlocations should be returned.
+ */
+function _unipro_custom_get_nodes_mlocations($nid) {
+  $node = node_load ( $nid );
+  // No mlocations set on the array so return.
+  if (! (isset ( $node->field_mlocation [LANGUAGE_NONE] ))) {
+    return FALSE;
+  }
+  $mtids = array ();
+  foreach ( $node->field_mlocation [LANGUAGE_NONE] as $location ) {
+    // Pass each value into the return array.
+    $mtids [] = $location ['tid'];
+  }
+  return $mtids;
+}
+
+/**
+ *
+ *
+ *
+ * Taxonomy term name and vocabulary to target.
+ * This function can replace taxonomy_get_terms_by_name,
+ * now you can pass $vid to target a term name from a specific vocabulary.
+ *
+ * @param
+ *          $vid
+ * @param
+ *          $name
+ */
+function _unipro_custom_taxonomy_get_term_by_name_and_vocabulary($name, $vid) {
+  return taxonomy_term_load_multiple ( array (), array ('name' => trim ( $name ), 'vid' => $vid ) );
+}
+
+/**
+ *
+ *
+ *
+ * Recursive function to return all the parents of a given TID.
+ *
+ * @param $tid -
+ *          the subject tid. A term id.
+ * @return $allparents = return all the parents of a given TID.
+ */
+function _unipro_custom_get_parents($tid) {
+  $allparents = array ();
+  while ( $parent = _unipro_custom_get_parent ( $tid ) ) {
+    $allparents [] = $parent;
+    $tid = $parent;
+  }
+  return $allparents;
+}
+
+/**
+ *
+ *
+ *
+ * Return the immediate parent of a given TID, via a call to the Taxonomy
+ * Hierarchy table.
+ *
+ * @param $tid -
+ *          the subject tid. A term id.
+ *          $result Query result containing the TID of the immediate parent.
+ */
+function _unipro_custom_get_parent($tid) {
+  $query = db_select ( 'taxonomy_term_hierarchy', 'th' );
+  $query->addField ( 'th', 'parent', 'parent' );
+  $query->condition ( 'th.tid', $tid );
+  $result = $query->execute ();
+  if ($result->rowCount ()) {
+    return $result->fetchField ();
+  }
+  return FALSE;
+}
+
+/**
+ *
+ *
+ *
+ * Get all the accesstokens set on a Sitemap Term.
+ *
+ * @param
+ *          $tid
+ */
+function _unipro_custom_get_access_tokens($tid) {
+  // Bomb out if not Sitemap.
+  $term = taxonomy_term_load ( $tid );
+  $vid = VID_SITEMAP;
+  if ($term->vid != $vid) {
+    return FALSE;
+  }
+  $accesstokens = array ();
+  // Query the database to get all access control TIDS set on $tid.
+  $query = db_select ( 'field_data_field_access_control', 'ac' );
+  $query->addField ( 'ac', 'field_access_control_tid', 'atid' );
+  $query->condition ( 'ac.entity_id', $tid );
+  $result = $query->execute ();
+  if ($result->rowCount ()) {
+    foreach ( $result as $record ) {
+      $accesstokens [] = $record->atid;
+    }
+    return $accesstokens;
+  }
+  // Return false if no access control tids are set.
+  return FALSE;
+}
+
+/**
+ * implements hook_form_alter
+ */
+function unipro_custom_form_alter(&$form, &$form_state, $form_id) {
+
+  global $user;
+  $account = user_load ( $user->uid );
+  
+  global $theme;
+  // Get the viewing users roles.
+  $viewing_roles = array_values ( $account->roles );
+  
+  switch ($form_id) {
+        
+    case 'node_delete_confirm':
+      if ($form ['#node']->type == 'general_content_moderated') {
+        $form ['actions']['submit']['#value'] = 'Delete all versions';
+        $form ['description'] ['#markup'] = '<h1>Warning. This will permanently delete every version of this page, not just this version.</h1>';
+      }
+      break;
+      
+    case 'user_profile_form' :
+    case 'user_register_form' :
+    
+      // Universal actions.
+      // Hide default territory field.
+      $form ['field_default_tlocation'] ['#access'] = FALSE;
+      
+      // remove the transient territory field from the form (default value is
+      // still saved).
+      $form ['field_tlocation'] ['#access'] = FALSE;
+      
+      // remove the transient home site field from the form (default value is
+      // still saved).
+      $form ['field_hlocation'] ['#access'] = FALSE;
+      
+      // Filter out the top terms from the select list showing all the home
+      // locations, i.e. office and stores.
+      $hlocation_options = $form ['field_default_hlocation'] [LANGUAGE_NONE] ['#options'];
+      $form ['field_default_hlocation'] [LANGUAGE_NONE] ['#options'] = preg_grep ( '/^-+[A-Z]/', $hlocation_options );
+      
+      // Role dependent actions follow.
+      // Load user object.
+      $target_user = user_load ( arg ( 1 ) );
+      
+      // Get the targeted users roles.
+      $target_roles = array_values ( $target_user->roles );
+      
+      // Create an array to hold the roles for checking later.
+      $author_roles = array ('Territory information manager', 'author' );
+      $admin_roles = array ('administrator', 'Territory information manager' );
+      
+      // Compare $author_roles against target user roles.
+      $check_author_roles = array_intersect ( $author_roles, $target_roles );
+      // Compare $admin_roles against viewing user roles.
+      $check_admin_roles = array_intersect ( $admin_roles, $viewing_roles );
+      
+      // Check if the user is an admin and if not hide the home location field.
+      if (! empty ( $check_admin_roles )) {
+        $form ['field_default_hlocation'] ['#access'] = TRUE;
+        $form ['field_default_hlocation'] ['#disabled'] = FALSE;
+      } else {
+        $form ['field_default_hlocation'] ['#access'] = FALSE;
+      }
+      
+      // Check if user being viewed has author role and the viewer is a TIM or
+      // admin - if not then hide the author locations and Wysiwyg format.
+      if ((! empty ( $check_admin_roles )) && (! empty ( $check_author_roles ))) {
+        $form ['field_alocation'] ['#access'] = TRUE;
+        $form ['field_format'] ['#access'] = TRUE;
+      } else {
+        $form ['field_alocation'] ['#access'] = FALSE;
+        $form ['field_format'] ['#access'] = FALSE;
+      }
+      
+      // Check if user being viewed has office senior manager role and if not
+      // then hide the Primary Stores locations.
+      if ((! empty ( $check_admin_roles )) && (in_array ( 'office senior manager', $target_roles ))) {
+        $form ['field_pstores'] ['#access'] = TRUE;
+      } else {
+        $form ['field_pstores'] ['#access'] = FALSE;
+      }
+      
+      // Non admins
+      if (! in_array ( 'administrator', $viewing_roles )) {
+            // Hide certain roles to non-admins
+          _unipro_custom_hide_role('administrator',$form);
+          _unipro_custom_hide_role('store data viewer',$form);
+          _unipro_custom_hide_role('authenticated user',$form);
+          _unipro_custom_hide_role('wb section viewer',$form);
+          _unipro_custom_hide_role('wb section editor',$form);
+          _unipro_custom_hide_role('specsavers site admin',$form);
+          _unipro_custom_hide_role('specsavers site reports',$form);
+          
+        // Hide irrelevant roles for TIMs
+        // Each TIM role has a country identifier as it's first word
+        // This is used to filter out other roles that don't match the TIMs territory
+        
+        // Get all the TIM role locations for the logged in user into an array
+        $tim_locations = array();
+        $tim_roles = null;
+        foreach ($viewing_roles as $key => $role ) {
+          if (strstr($role, 'tim')) {
+            $tim_roles[] = str_replace(' tim', '', $role);
+          }
+        }
+        
+        if ($tim_roles){
+          // Remove tim role options that don't match the location of the viewing user
+          foreach ( $form ['account'] ['roles'] ['#options'] as $key => $option ) {
+            
+            // Hide TIM roles
+            if (strstr ( $option, 'tim' )) {
+              if (! in_array(str_replace(' tim', '', $option), $tim_roles)) {
+                unset ( $form ['account'] ['roles'] ['#options'] [$key] );
+              }
+            }
+            
+            // Hide author roles
+            if ( $option !== 'author') { // Ignore the general author role, this is not territory specific
+              if (strstr ( $option, 'author' )) {
+                if (! in_array(str_replace(' stores author', '', $option), $tim_roles)) {
+                  unset ( $form ['account'] ['roles'] ['#options'] [$key] );
+                }
+              }
+            }
+            
+            // Hide UK specific workbench roles for non uk viewer
+            if ( ! in_array('uk', $tim_roles)) {
+              if ( $option == 'product comms' || $option == 'finance comms' || $option == 'tax manager' || $option == 'legal comms' || $option == 'business updates publisher') {
+                 unset ( $form ['account'] ['roles'] ['#options'] [$key] );
+              }
+            }
+            
+          } // foreach
+        }
+      }
+      
+    break;
+    case 'taxonomy_manager_form' :
+      // Hide the storetype checkboxes if the taxonomy term on display is an
+      // office term.
+      if (isset ( $form ['term_data'] ) && count ( $form ['term_data'] ) > 2) {
+        $tid = $form ['term_data'] ['#term'] ['tid'];
+        if (! (_unipro_custom_stores_context ( $tid ))) {
+          unset ( $form ['term_data'] ['field_store_type'] );
+        } else {
+          // Grey out the storetype checkboxes so the users can see but not
+          // change the values.
+          // Store roles in an array.
+          $current_user_roles = array ('Territory information manager', 'administrator' );
+          
+          // Check current user roles against $custom_user_roles.
+          $check = array_intersect ( $current_user_roles, $viewing_roles );
+          
+          // Deny access if the user has not got the neccessary roles.
+          if (empty ( $check )) {
+            $form ['field_store_type'] ['#access'] = FALSE;
+          }
+        }
+      }
+      
+      // Hide field.
+      $form ['term_data'] ['description'] ['#type'] = 'hidden';
+      // Modify field size.
+      $form ['term_data'] ['field_access_control'] ['und'] ['#size'] = '55';
+      // Modify positioning (weight).
+      $form ['term_data'] ['term_data'] ['weight'] ['#weight'] = '5';
+      
+      // Hide field and retain values.
+      $form ['term_data'] ['field_summary'] ['#access'] = FALSE;
+      $form ['term_data'] ['field_image'] ['#access'] = FALSE;
+      $form ['term_data'] ['field_document'] ['#access'] = FALSE;
+      $form ['term_data'] ['field_see_also'] ['#access'] = FALSE;
+      $form ['term_data'] ['field_topics'] ['#access'] = FALSE;
+      $form ['term_data'] ['field_content_type'] ['#access'] = FALSE;
+      
+      // Add a control to reset the sitemap cache on demand.
+      // Only put this control on the form if the current user is a TIM and we
+      // are looking at Sitemap.
+      // Get the territory for the user.
+      if (isset ( $form ['taxonomy'] )) {
+        if ((in_array ( 'Territory information manager', $viewing_roles )) && ($form ['taxonomy'] ['manager'] ['#title'] == 'Sitemap')) {
+          $form ['term_data'] ['reset_cache'] ['#weight'] = 7;
+          $form ['term_data'] ['reset_cache'] ['#type'] = 'button';
+          $form ['term_data'] ['reset_cache'] ['#value'] = 'Clear cache';
+          $form ['term_data'] ['reset_cache'] ['#description'] = 'Clear the Top Menu caches for all sites in your territory.';
+          $form ['term_data'] ['reset_cache'] ['#executes_submi`t_callback'] = FALSE;
+          $form ['term_data'] ['reset_cache'] ['#attributes'] = array ('onclick' => 'Drupal.TaxonomyManager.confirmClear();return (false);' );
+        }
+      }
+      break;
+    case 'general_content_node_form' :
+    case 'general_content_moderated_node_form' :
+     
+     //$form['actions']['submit']['#validate'][] = 'paul_submit';
+      $form['#validate'][] = 'paul_submit';
+      $form['#validate'] = array_reverse($form['#validate']);
+  
+      // replace the image title with caption 
+      $form['#after_build'][] = '_unipro_image_field_title';
+      
+      // MD - #625 - Remove the delete button on node forms for basic Authors, but not TIMS or Admins
+      // If roles are met remove delete button on node forms.
+      if ((in_array ( 'author', $viewing_roles )) && ! (in_array ( 'administrator', $viewing_roles )) && ! (in_array ('Territory information manager', $viewing_roles))) {
+        unset ( $form ['actions'] ['delete'] );
+      }
+      
+      // This will modify format field according to that which is set in the
+      // users account 'Wysiwig format'.
+      if ($account->field_format) {
+        $format = $account->field_format ['und'] [0] ['value'];
+        $form ['body'] ['und'] [0] ['#format'] = $format;
+      } else {
+        // Default to basic format
+        $form ['body'] ['und'] [0] ['#format'] = 'plain_text'; // Uses machine name
+      }
+      
+      // Remove js relating to summary field that is responsible for toggle
+      // hide/show.
+      
+      unset ( $form ['body'] ['und'] [0] ['summary'] ['#attached'] );
+      // Remove wysiwyg overlay on summary field
+      $form ['body'] ['und'] [0] ['summary'] ['#wysiwyg'] = FALSE;
+      
+      // Check user viewing node form has admin role.
+      $admin_roles = array ('Territory information manager', 'administrator' );
+      $role_admin = array_intersect ( $admin_roles, $viewing_roles );
+      if ($role_admin) {
+        // Allow access to field home page tags
+        $form ['field_home_tags'] ['#access'] = TRUE;
+      } else {
+        // Otherwise hide
+        $form ['field_home_tags'] ['#access'] = FALSE;
+      }
+      // Check user viewing node form has author/admin role - If true grant
+      // access to authoring/ publishing information.
+      $check_roles = array ('Territory information manager', 'author', 'administrator' );
+      $role_values = array_intersect ( $check_roles, $viewing_roles );
+      if ($role_values) {
+        // User can see authoring/publishing information, by default it is
+        // hidden.
+        $form ['author'] ['#access'] = TRUE;
+        $form ['options'] ['#access'] = TRUE;
+        if (in_array ( 'author', $viewing_roles )) {
+          unset ( $form ['options'] ['promote'] );
+          unset ( $form ['options'] ['sticky'] );
+        }
+      }
+      
+      // Cancel link.
+      // #224 - Added cancel button to edit mode.
+      if ((arg ( 0 ) == 'node' && arg ( 1 ) == 'add' && is_numeric  (arg ( 3 )))
+       || (arg ( 0 ) == 'node' && arg ( 2 ) == 'edit' && is_numeric  (arg ( 1 )))) 
+      {
+        $form ['actions'] ['cancel'] = array ('#type' => 'button', '#value' => t ( 'Cancel' ), '#weight' => 15, '#attributes' => array ('id' => '#cancel-button', 'onclick' => 'if(!confirm("Are you sure you wish to cancel?")){return false;}else{
+        var url = window.location.pathname;
+        var args = url.split("/");
+        var nid = args[2];    
+        jQuery("#cancel-button").submit(location.href = "/node/" + nid);}' ), '#post_render' => array ('_unipro_custom_change_button_type' ) );
+      }
+      
+      // Hide storetype on the node as this is always set programatically.
+      $form ['field_store_type'] ['#access'] = FALSE;
+      
+      // Authors name, under "Authoring Information" set to be required.
+      $form ['author'] ['name'] ['#required'] = TRUE;
+
+      break;
+    
+    case 'taxonomy_form_term' :
+      
+      
+      // replace the image title with caption 
+      $form['#after_build'][] = '_unipro_image_field_title';
+      
+      // This will modify format field according to that which is set in the
+      // users account 'Wysiwig format'.
+      if ($account->field_format) {
+        $format = $account->field_format ['und'] [0] ['value'];
+        $form ['description'] ['#format'] = $format;
+      } else {
+        // Default to basic format.
+        $form ['description'] ['#format'] = 'plain_text'; // Uses machine name
+      }
+      
+      // Store roles in an array.
+      $current_user_roles = array ('Territory information manager', 'administrator' );
+      
+      // Check current user roles against $custom_user_roles.
+      $check = array_intersect ( $current_user_roles, $viewing_roles );
+      
+      // Deny access if the user has not got the neccessary roles.
+      if (empty ( $check )) {
+        $form ['field_store_type'] ['#access'] = FALSE;
+      }
+      
+      // Hide fields
+     
+      $form ['field_access_control'] ['#access'] = FALSE;
+      $form ['relations'] ['#access'] = FALSE;
+      $form['name']['#title'] = null;
+      $form['description']['#title'] = null;
+      unset($form['field_summary'][LANGUAGE_NONE][0]['value']['#title']);
+      break;
+    
+    case 'office_notice_node_form' :
+    case 'business_updates_node_form' :
+      #954 - Change WYSIWYG format to basic
+      // Default to basic format.
+      $form ['body'] ['und'] [0] ['#format'] = 'plain_text'; // Uses machine name!
+      
+      // Remove js relating to summary field that is responsible for toggle
+      // hide/show.
+      unset ( $form ['body'] ['und'] [0] ['summary'] ['#attached'] );
+      // Remove wysiwyg overlay on summary field
+      $form ['body'] ['und'] [0] ['summary'] ['#wysiwyg'] = FALSE;
+
+      // replace the image title with caption
+      $form['#after_build'][] = '_unipro_image_field_title';
+      
+      // Hide menu location
+      $form ['field_mlocation'] ['#type'] = 'hidden';
+      
+      $error_msgs = array ('InvalidContentTag1000' => 'Error 1000 - Unable to determine where to place content, so cannot create.', 'InvalidContentTag1001' => 'Error - 1000 - Unable to determine where to place content, so cannot create.', 'SiteLookup' => 'Error - 1002 - Unable to determine your Site. Cannot create Content.' );
+      
+      // This section is about granting access to the author information if the
+      // user is an admin or TIM. #466.
+      
+      // Store roles in an array.
+      $current_user_roles = array ('Territory information manager', 'administrator' );
+      // Check current user roles against $custom_user_roles.
+      $check = array_intersect ( $current_user_roles, $viewing_roles );
+      if (! empty ( $check )) {
+        $form ['author'] ['#access'] = TRUE;
+      }
+      
+      $content_type = substr ( $form_id, 0, - 10 );
+      $mlocvalue = _unipro_custom_set_content_location($account, $content_type);
+      
+      // Now we have done the main processing continue to alter the form elements.
+      
+      // Store default value for menu location
+      $form ['field_mlocation'] ['und'] ['#default_value'] [0] = $mlocvalue;
+      
+      // Override value for menu location
+      $form ['field_mlocation'] ['und'] ['#value'] [0] = $mlocvalue;
+      //This is set on when the user is creating content that is automatically placed on the site, like Business Updates.
+      //It's referenced by workbench_access module to set a section.
+      $form['autoplacement']['#value'] = true;
+      // Store roles in an array
+      $current_user_roles = array ('Territory information manager', 'administrator' );
+      
+      // Check if user has current roles
+      $check = array_intersect ( $current_user_roles, $viewing_roles );
+      
+      if (empty ( $check ) && $form_id == 'business_updates_node_form') {
+        // Adds a custom submit handler to the form
+        $form ['#submit'] [] = '_unipro_custom_redirect_business_updates_form_submit';
+      }
+
+      
+      // Cancel link.
+      $onclick = 'if(!confirm("Are you sure you wish to cancel?")){return false;}else{jQuery("#cancel-button").submit(location.href = "/");}';
+      $form ['actions'] ['cancel'] = array ('#type' => 'button',
+                                            '#value' => t ( 'Cancel' ),
+                                            '#weight' => 15,
+                                            '#attributes' => array ('id' => '#cancel-button',
+                                                                             'onclick' => $onclick,
+                                                             ),
+                                            '#post_render' => array ('_unipro_custom_change_button_type' ) );
+      
+      break;
+      
+    case 'quick_links_node_form' :
+      global $theme;
+      
+      // This will modify format field according to that which is set in the
+      // users account 'Wysiwig format'.
+      if ($account->field_format) {
+        $format = $account->field_format ['und'] [0] ['value'];
+        $form ['body'] ['und'] [0] ['#format'] = $format;
+      } else {
+        // Default to basic format
+        $form ['body'] ['und'] [0] ['#format'] = 'plain_text'; // Uses machine name
+      }
+      
+      // Cancel link.
+      $form ['actions'] ['cancel'] = array ('#type' => 'button', '#value' => t ( 'Cancel' ), '#weight' => 15, '#attributes' => array ('id' => '#cancel-button', 'onclick' => 'if(!confirm("Are you sure you wish to cancel?")){return false;}else{
+        jQuery("#cancel-button").submit(location.href = "/");}' ), '#post_render' => array ('_unipro_custom_change_button_type' ) );
+      
+      // Get the user's territory tid
+      $ttid = _unipro_custom_get_user_profile_tids ( $user->uid, 'territory' );
+      
+      // Get the user's home location
+      $hloc = _unipro_custom_get_user_profile_tids ( $user->uid, 'home' );
+      
+      // Load object frin territory tid
+      $territory = taxonomy_term_load ( $ttid [0] )->name;
+      
+      // Load vocabulary
+      $vocabulary = taxonomy_vocabulary_machine_name_load ( 'content_type_home_page_tags' );
+      
+      // Load term
+      $loadterm = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( 'Quick links', $vocabulary->vid );
+      
+      // Split into values
+      $tags = array_values ( $loadterm );
+      
+      // Grab tid from index
+      $tid = $tags [0]->tid;
+      
+      if ($tid) {
+        // Find tagged term with field content type on it
+        $query = db_select ( 'field_data_field_business_office', 'bo' );
+        $query->addField ( 'bo', 'entity_id', 'entity_id' );
+        $query->condition ( 'bo.field_business_office_tid', $tid );
+        $result = $query->execute ();
+        
+        // Extract the tid from the $result
+        foreach ( $result as $record => $value ) {
+          $tid = $value->entity_id;
+          $loadterm = array_reverse ( taxonomy_get_parents_all ( $tid ) );
+          if (isset ( $loadterm [1]->name ) && $loadterm [1]->name === $territory) {
+            $lastobject = array_pop ( $loadterm );
+            
+            // Check tid access control tokens
+            $get_acc_tids = _unipro_custom_get_access_tokens ( $lastobject->tid );
+            
+            // If no access tids are associated with the current term check its
+            // parent
+            if (empty ( $get_acc_tids )) {
+              $get_acc_tids = _unipro_custom_get_parent_tids ( $lastobject->tid );
+              // If no access tids are on the parents then return false with an
+              // error message
+              if (empty ( $get_acc_tids )) {
+                return false;
+              }
+            }
+            
+            // If the access tids match the users home location then return true
+            $check = (in_array ( $hloc [0], $get_acc_tids )) ? TRUE : FALSE;
+            if ($check == TRUE) {
+              // Store a new theme ready for switching
+              if ($theme != 'specsavers_offices') {
+                $check_theme = _unipro_location_switcher_stores_check_theme ( $lastobject->tid );
+                if ($check_theme === $theme) {
+                  $mlocval = $lastobject->tid;
+                }
+              } else {
+                // Dont preform theme checks if user is in offices site
+                $mlocval = $lastobject->tid;
+              }
+            }
+          }
+        }
+        
+        // Processing complete if we have the correct result continue.
+        if (isset ( $mlocval )) {
+          // Check current theme for message handling
+          if ($theme === 'specsavers_offices') {
+            $themename = 'Offices site';
+          } else {
+            $themename = ($theme === 'specsavers') ? 'Optical site' : 'Hearcare site';
+          }
+          // Set our message
+          drupal_set_message ( 'Quick links will be added to the ' . $themename, 'status' );
+          
+          // Remove menu location field
+          unset ( $form ['field_mlocation'] ['und'] ['#default_value'] [0] );
+          
+          // Set a default value for menu location
+          $form ['field_mlocation'] ['und'] ['#default_value'] [0] = $mlocval;
+          
+          // Insert a value into array
+          $form ['field_mlocation'] ['und'] ['#value'] [0] = $mlocval;
+          
+          // Hide menu location field
+          $form ['field_mlocation'] ['#type'] = 'hidden';
+        } else {
+          // Return our custom error
+          $error_msgs = array ('NoQuickLinksTAG' => 'Content type Quick Links is not tagged with a term from vacabulary ' . $vocabulary->name );
+          _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['NoQuickLinksTAG'] );
+        }
+      }
+      break;
+      
+      case 'comment_node_general_content_form' :
+        $form['actions']['submit']['#validate'][] = 'unipro_custom_comment_validate';
+      break ;   
+      
+  }
+  
+}
+
+function paul_submit(&$form, &$form_state) {
+ dpm($form_state);
+}
+
+/*
+ * form after build to override the image_field image title and description
+ */
+function _unipro_image_field_title(&$form, &$form_state) {
+  // the field title is hard coded into the general-conetent-node-form.tpl.php / moderated etc
+  $form ['field_image'][LANGUAGE_NONE] ['#title'] = '';
+  
+  // the are the sub form details when an image has been uploaded (Alt, Title etc), currently only one image (the zeroeth) needs this
+  $form['field_image']['und'][0]['title']['#title'] = t('Caption') ;
+  $form['field_image']['und'][0]['title']['#description'] = t('The caption appears below the image') ;
+  $form['field_image']['und'][0]['title']['#maxlength'] = 128;
+  return $form ;
+}
+/**
+ * suppress the user from ending up on the comment reply page when the body is empty (fail)
+ * @see http://drupal.org/node/1074616 - tried form_state['redirect'] but it failed
+ */
+function unipro_custom_comment_validate( &$form, &$form_state) {
+
+  if(empty($form_state['values']['comment_body']['und'][0]['value'])) {
+    drupal_goto('node/' . $form_state['values']['nid']) ;
+  }
+}
+
+
+/**
+ * Modifies the submit button to aviod any proccessing on the node form
+ *
+ * @param
+ *          $markup
+ * @param
+ *          $element
+ */
+function _unipro_custom_change_button_type($markup, $element) {
+  $markup = str_replace ( 'type="submit', 'type="button', $markup );
+  return $markup;
+}
+
+/**
+ * Custom validation check on image description field.
+ * Iterate through the image field values and checks if decription contains any data.
+ * If the field is empty we use form_set_error to respond with an error message.
+ */
+function unipro_custom_document_form_validate($form, &$form_state) {
+  $form_state ['rebuild'] = FALSE;
+  foreach ( $form_state ['values'] ['field_document'] ['und'] as $key ) {
+    if ($key ['fid'] != 0) {
+      if ($key ['description'] == '') {
+        $error = TRUE;
+      }
+    }
+  }
+  if (isset ( $error ) && $error == TRUE) {
+    form_set_error ( 'field_document', t ( 'Please enter a description for your document.' ) );
+  }
+}
+
+/**
+ * Function to redirect the user after a business update has been made.
+ */
+function _unipro_custom_redirect_business_updates_form_submit($form, &$form_state) {
+  $_GET ['destination'] = '<front>';
+  $form_state ['redirect'] = '<front>';
+  drupal_set_message ( 'Your content has been posted and will need to be reviewed before being published.', 'warning' );
+}
+
+/**
+ * Helper function to return true if a Sitemap TID relates to an optical site.
+ *
+ * @param $tid -
+ *          must be from the Sitemap Vocabulary, otherwise the function will
+ *          return false.
+ * @return If the TID is tagged as an optical term the function returns true.
+ *         If the TID is not tagged either optical or hearcare but one of its
+ *         parents is tagged optical then the function returns true.
+ *         Under all other conditions it returns false.
+ */
+function _unipro_custom_is_optical($tid) {
+  // Check the vid of the supplied tid and return if not sitemap.
+  $term = taxonomy_term_load ( $tid );
+  $vid = VID_SITEMAP;
+  if ($term->vid != $vid) {
+    return FALSE;
+  }
+  // This is not a stores TID so return false.
+  if (! _unipro_custom_stores_context ( $tid )) {
+    return FALSE;
+  }
+  // There is no store type set on this tid, so check the parents.
+  if (! (isset ( $term->field_store_type [LANGUAGE_NONE] ))) {
+    return _unipro_custom_check_parent_storetype ( $tid );
+  }
+  // Both optical and hearcare are set, so it is correct to return true.
+  if ((count ( $term->field_store_type [LANGUAGE_NONE] ) == 2)) {
+    return TRUE;
+  }
+  // Only one value is set so we check if it is optical and if so return true,
+  // otherwise return false.
+  if ((count ( $term->field_store_type [LANGUAGE_NONE] ) == 1)) {
+    foreach ( $term->field_store_type [LANGUAGE_NONE] as $storetype ) {
+      $stids [] = $storetype ['tid'];
+    }
+    $storetype = taxonomy_term_load ( $term->field_store_type [LANGUAGE_NONE] [0] ['tid'] )->name;
+    if ($storetype === 'Optical') {
+      return TRUE;
+    }
+  }
+}
+
+/**
+ * Helper function to return true if a Sitemap TID relates to a Hearcare site.
+ *
+ * @param $tid -
+ *          must be from the Sitemap Vocabulary, otherwise the function will
+ *          return false.
+ * @return If the TID is tagged as an hearcare term the function returns TRUE.
+ *         If the TID is not tagged either optical or hearcare but one of its
+ *         parents is tagged hearcare then the function returns true.
+ *         Under all other conditions it returns FALSE.
+ */
+function _unipro_custom_is_hearcare($tid) {
+  // Check the vid of the supplied tid and return if not sitemap.
+  $term = taxonomy_term_load ( $tid );
+  $vid = VID_SITEMAP;
+  if ($term->vid != $vid) {
+    return FALSE;
+  }
+  // There is no store type set on this tid, so check the parents.
+  if (! (isset ( $term->field_store_type [LANGUAGE_NONE] ))) {
+    return _unipro_custom_check_parent_storetype ( $tid, 'Hearcare' );
+  }
+  // Both optical and hearcare are set, so it is correct to return true.
+  if ((count ( $term->field_store_type [LANGUAGE_NONE] ) === 2)) {
+    return True;
+  }
+  // Only one value is set so we check if it is optical and if so return true,
+  // otherwise return false.
+  if ((count ( $term->field_store_type [LANGUAGE_NONE] ) === 1)) {
+    foreach ( $term->field_store_type [LANGUAGE_NONE] as $storetype ) {
+      $stids [] = $storetype ['tid'];
+    }
+    $storetype = taxonomy_term_load ( $term->field_store_type [LANGUAGE_NONE] [0] ['tid'] )->name;
+    if ($storetype === 'Hearcare') {
+      return true;
+    }
+  }
+}
+
+/**
+ * This is a recursive function which analyses the parents of a given tid, to
+ * see how they are tagged, in respect to storetype - optical and/or hearcare.
+ * As soon as a parent is found to be tagged the function will return a result.
+ *
+ * @param $tid Integer
+ *          - a TID from the Sitemap vocabulary.
+ */
+function _unipro_custom_check_parent_storetype($tid, $context = 'Optical') {
+  $theme = $_SESSION ['custom_theme'];
+  // Check the vid of the supplied tid and return if not sitemap.
+  $term = taxonomy_term_load ( $tid );
+  $vid = VID_SITEMAP;
+  if ($term->vid != $vid) {
+    return FALSE;
+  }
+  $parents = taxonomy_get_parents ( $tid );
+  // Check the status of the parent to see if it is tagged with optical and/or hearcare.
+  foreach ( $parents as $parent ) {
+    $stids = array ();
+    $term = taxonomy_term_load ( $parent->tid );
+    if (! isset ( $term->field_store_type [LANGUAGE_NONE] )) {
+      return _unipro_custom_check_parent_storetype ( $parent->tid );
+    }
+    if ((count ( $term->field_store_type [LANGUAGE_NONE] ) === 2)) {
+      return TRUE;
+    }
+    if ((count ( $term->field_store_type [LANGUAGE_NONE] ) === 1)) {
+      foreach ( $term->field_store_type [LANGUAGE_NONE] as $storetype ) {
+        $stids [] = $storetype ['tid'];
+      }
+      $storetype = taxonomy_term_load ( $term->field_store_type [LANGUAGE_NONE] [0] ['tid'] )->name;
+      if ($storetype === $context) {
+        return TRUE;
+      }
+    }
+  }
+}
+
+/**
+ * helper function to see if this term is under the Stores branch of the Sitemap
+ *
+ * @param $tid The
+ *          term to check.
+ * @return True - this is a Stores term.
+ *         False - it certainly is not a Stores term.
+ */
+function _unipro_custom_stores_context($tid) {
+  $parents = taxonomy_get_parents_all ( $tid );
+  foreach ( $parents as $parent ) {
+    if ($parent->name == "Stores") {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * This function is used to generate a list of teasers in response to a call to a url with
+ * the form /taxonomy/term/x
+ * 
+ * The function aggregates all the nodes and child terms for the selected $tid.
+ * 
+ * The function caters for unpublished and published nodes.
+ * Unpublished nodes are selected according to business rules.
+ * Note the dependency on Workbench in here.
+ *
+ * @param
+ *          $tid
+ * @return $output - Array of data
+ */
+function _unipro_custom_teasers($tid , $limit = 10, $offset) {
+  global $theme;
+  global $user;
+  $expose_unpublished = null;
+  $term = taxonomy_term_load ( $tid );
+
+  if (!is_object($term)) {
+    return;
+  }
+   $name = $term->name;
+  
+  if($term->vid == VID_TOPICS) {
+    //If we are displaying terms from the topics vocabulary then we need to get all nodes that are tagged with this topic.
+    //Paging and tagging is applied. Paging by 10, and tagging to get node access to work.
+     $query = db_select ( 'field_data_field_topics', 't' );
+     $query->join('node' , 'n' , 't.entity_id = n.nid');
+     $query->addField('t', 'entity_id' , 'entityid');
+     $query->addField('n', 'created');
+     $query->addField('n', 'title');
+     $query->addField('n', 'status');
+     $query->addExpression('\'Article\'', 'type');
+     $query->addExpression('\'0\'', 'weight');
+     $query->orderBy('created' , 'DESC');
+     //Here's an OR condition applied by the db_or method..........
+     $or = db_or ()->condition ( 't.bundle', 'general_content' )->condition ( 't.bundle', 'general_content_moderated' );
+     $query->condition ( $or );
+     $query->condition ( 't.field_topics_tid', $tid, '=' );
+     $query->addTag ( 'node_access' );
+     $query = $query->extend('PagerDefault');
+     $query = $query->limit($limit);
+     $elements = $query->execute()->fetchAll();
+     $_SESSION['teasers'] = array ('name' => $name, 'key' => $tid, 'elements' => $elements );
+     return $_SESSION['teasers'];
+  }
+  
+  // Under certain conditions we are to expose unpublished nodes.
+  // Only stores nodes and then only to authors and TIMS.
+  // We just set a boolean to indicate if we are to include unpublished nodes.
+  $expose_unpublished = false;
+  if ($theme != 'specsavers_offices') {
+    // #945 - Only show unpublished nodes to non-authors / TIMS in stores in
+    // teasers
+    $roles = array_values ( $user->roles );
+    if (in_array ( 'author', $roles ) || (in_array ( 'Territory information manager', $roles ))) {
+      $expose_unpublished = true;
+    }
+  } else {
+    // Dont show unpublished to anyone in the offices theme.
+    $expose_unpublished = false;
+  }
+  
+  // We have combined nodes and terms into a set of entities.
+  // For every Sitemap term we get all the nodes that are tagged with the term
+  // as well as all the children terms.
+  // We pass in the Sitemap TID, an integer that is the LIMIT used for paging,
+  // and the boolean $expose_unpublished to set if we
+  // get back unpublished nodes.
+  $elements = _unipro_taxonomy_select_entities ( $tid, $limit, $expose_unpublished , $offset);
+  // Now we have all the entities we need for the page we need to process them.
+  foreach ( $elements as &$element ) {
+    if ($element->type == 'Article') {
+      if ($element->status == '0') {
+        //Get the current revision.
+        $element->vid = _unipro_custom_select_revision ( $element->entityid );
+        //Set the title to the selected node revision.
+        if ($element->vid != null){
+          $element->title = node_load($element->entityid , $element->vid)->title;
+        }
+      } else {
+        $element->vid = null;
+      }
+    }
+  }
+
+  $_SESSION['teasers'] = array ('name' => $name, 'key' => $tid, 'elements' => $elements );
+  return $_SESSION['teasers'];
+}
+ 
+
+function _unipro_taxonomy_select_entities($tid, $limit , $expose_unpublished = false , $offset) {
+  //Specific code to handle news aggregation.
+  if ((arg ( 3 ) == 'optical-news') || (arg ( 3 ) == 'hearcare-news')) {
+    // Get the Term ID for the content type 'News'.
+    $terms = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( 'News', VID_CONTENT_TYPE );
+    foreach ( $terms as $term ) {
+      $news_tid = $term->tid;
+    }
+    $storetype = (arg (3) == 'optical-news') ? 'Optical' : 'Hearcare';
+    $terms = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( $storetype, VID_STORE_TYPE );
+    foreach ( $terms as $term ) {
+      $storetype_tid = $term->tid;
+    }
+    $query = db_select('node' , 'n');
+    $query->join('field_data_field_content_type' , 't' , 'n.nid = t.entity_id' );
+    $query->join('field_data_field_store_type' , 's' , 'n.nid = s.entity_id' );
+    $query->condition('t.field_content_type_tid' , $news_tid);
+    $query->condition('s.field_store_type_tid' , $storetype_tid);
+    if (!$expose_unpublished) {
+      $query->condition('n.status' , 1);
+    }
+    $query->addField('n' , 'nid' , 'entityid');
+    $query->addField('n' , 'title');
+    $query->addField('n' , 'status');
+    $query->addExpression('0' , 'weight');
+    $query->addField('n' , 'created');
+    $query->addExpression('\'Article\'', 'type');
+    $query = $query->extend('PagerDefault');
+    $query = $query->limit($limit);
+    $query->addTag('node_access');
+    $query->orderBy('created' , 'DESC');
+    $dbobject = $query->execute()->fetchAll();
+    foreach ($dbobject as $object) {
+      $results [] = $object;
+    }
+    return $results;
+  }
+  
+  global $user;
+  global $theme;
+  $hloc = _unipro_custom_get_user_profile_tids($user->uid);
+  $theme_tid = null;
+  if ($theme != 'specsavers_offices') {
+    if ($theme == 'specsavers') {
+      $theme_object = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary('Optical', VID_STORE_TYPE);
+    } else {
+      $theme_object = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary('Hearcare', VID_STORE_TYPE);
+    }
+    foreach ($theme_object as $object) {
+      $theme_tid = $object->tid;
+    }
+  }
+  $results = array();
+  $grants = unipro_access_control_node_grants($user, 'view');
+  $grants_list = implode(",", $grants['unipro_access_control']);
+  $sql = '(SELECT DISTINCT n.nid AS entityid, n.title AS title, n.status AS status, w.weight AS weight, n.created AS created, \'Article\' AS type
+  FROM
+  {node} n
+  INNER JOIN {field_data_field_mlocation} m ON n.nid = m.entity_id
+  INNER JOIN {node_access} a ON n.nid = a.nid
+  LEFT OUTER JOIN {unipro_weights} w ON (n.nid = w.entityID AND w.sitemapID = :tid)
+  WHERE  (m.field_mlocation_tid = :tid AND a.gid IN (' . $grants_list . ')';
+  $arbitrary_date = strtotime('70-Jan-02');
+  if (!$expose_unpublished) {
+    $sql .= ' AND n.status = 1';
+  }
+  $sql .= ')) UNION (SELECT h.tid AS entityid, d.name AS title, \'0\' AS status, w.weight AS weight, ' . (int) $arbitrary_date . ' AS created , \'Folder\' AS type
+  FROM
+  {taxonomy_term_hierarchy} h
+  INNER JOIN {taxonomy_term_data} d ON h.tid = d.tid
+  LEFT OUTER JOIN {field_data_field_access_control} a ON h.tid = a.entity_id 
+  LEFT OUTER JOIN {unipro_weights} w ON (h.tid = w.entityID AND w.sitemapID = :tid)
+  LEFT OUTER JOIN {field_data_field_store_type} s ON h.tid = s.entity_id
+  WHERE  (h.parent = :tid AND (a.field_access_control_tid IS NULL OR a.field_access_control_tid = :hloc)';
+  
+  if ($theme != 'specsavers_offices') {
+    $sql .= ' AND (s.field_store_type_tid IS NULL OR s.field_store_type_tid = :theme_tid)';
+  }
+  
+  $sql .= ')) ORDER BY weight , created desc, title';
+  
+  if ($limit > 0) { 
+    $sql .= ' LIMIT ' .$limit . ' OFFSET ' . $offset;
+  }
+  if ($theme != 'specsavers_offices') {
+  $dbobject = db_query ( $sql, array (':tid' => $tid , ':theme_tid' => $theme_tid , ':hloc' => $hloc[0] ) );
+  } else {
+    $dbobject = db_query ( $sql, array (':tid' => $tid , ':hloc' => $hloc[0]) );
+  }
+  foreach ( $dbobject as $object ) {
+    $results [] = $object;
+  }
+  return $results;
+}
+
+
+function _unipro_custom_select_revision($nid) {
+  $vid = null;
+  // If workbench access exists and is enabled then select the revision that is
+  // nearest to published state.
+  // If there are more than one revisions in this state then select the latest.
+  // If the module is unavailable then avoid this processing and just select the
+  // latest revision.
+  if (module_exists ( 'workbench_access' )) {
+    
+    // Select the required version - should be the one nearest publishing.
+    // Get all records for the node from the workbench moderation history.
+    $query = db_select ( 'workbench_moderation_node_history', 'w' );
+    $query->condition ( 'w.nid', $nid );
+    $query->condition ('w.current' , 1);
+    $query->fields ( 'w', array ('vid') );
+    $vid = $query->execute()->fetchCol();
+  }
+  return $vid;
+}
+
+/**
+ * Checks to see if the set of elements has been weighted or not.
+ * If a single element has a weight other than 0 then the set is deemed to have been weighted.
+ * @param unknown_type $elements
+ * @return boolean
+ */
+function _unipro_weighting_set($elements) {
+  
+  foreach ($elements as $element) {
+    if ($element['weight'] != 0){
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Recursive function
+ * Removes any duplicates detected in a given array
+ *
+ * @param
+ *          $array
+ */
+function _unipro_custom_make_array_unique($array) {
+  $result = array_map ( "unserialize", array_unique ( array_map ( "serialize", $array ) ) );
+  foreach ( $result as $key => $value ) {
+    if (is_array ( $value )) {
+      $result [$key] = _unipro_custom_make_array_unique ( $value );
+    }
+  }
+  return $result;
+}
+
+/**
+ * Simple helper to check if $tid has multiple parents.
+ * This is used in the context of Sitemap terms like Global News which span territories.
+ *
+ * @param $tid the
+ *          TID to be checked.
+ * @return True if the term has multiple parents.
+ *         False otherwise.
+ */
+function _unipro_custom_multiple_parent($tid) {
+  $parents = taxonomy_get_parents ( $tid );
+  if (count ( $parents ) > 1) {
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
+/**
+ * Returns all the children of a given taxonomy term. Wraps the Drupal function taxonomy_get_children
+ * http://api.drupal.org/api/drupal/modules--taxonomy--taxonomy.module/function/taxonomy_get_children/7
+ * It adds a new parameter territory_sensitive which when on filters the
+ * returned children by territory and storetype.
+ * It uses the inheritence model which allows terms to inherit their access
+ * control settings from an ancestor, if the term
+ * is not specifically tagged with access control terms itself.
+ *
+ * @param $tid -
+ *          A taxonomy term id
+ * @param $filter -
+ *          if true then filter the children and remove any that should not be
+ *          seen by the user.
+ *          Filter 1 - check the term's access tokens against the user's home
+ *          location.
+ *          Filter 2 - check store terms against the current store-type theme.
+ *          If false then return an unfiltered list of children.
+ * @return $children - an array of taxonomy terms.
+ */
+function _unipro_taxonomy_get_children($tid, $filter = FALSE) {
+  // Check that the term is one from Sitemap, rather than any other vocabulary.
+  $vocabulary = taxonomy_vocabulary_machine_name_load ( 'Sitemap' );
+  $term = taxonomy_term_load ( $tid );
+  $error_msgs = array ('InvalidVID' => $term->name . ' is not a term from Sitemap.' );
+  if ($term->vid != $vocabulary->vid) {
+    return FALSE;
+  }
+  // Get all the children of the supplied term.
+  $children = taxonomy_get_children ( $tid, $vocabulary->vid );
+  // Perform filtration in $filter is true.
+  if ($filter) {
+    global $user, $theme;
+    // Get the user's home location.
+    $htids = _unipro_custom_get_user_profile_tids ( $user->uid, 'home' );
+    // Filter out terms that are outside the remit of the user.
+    foreach ( $children as $child ) {
+      $accesstokens = array ();
+      // Get all the access tokens that are set on the child term.
+      $accesstokens = _unipro_custom_get_access_tokens ( $child->tid );
+      if ($accesstokens) {
+        // We have retrieved some tokens on the term so we filter access against
+        // these terms.
+        if ((in_array ( $htids [0], $accesstokens ))) {
+          // We have a match between the terms' access tokens and the users'
+          // home location.
+          // The term is within the users' site and so passes through filter 1.
+          if ((($theme === 'specsavers') && (_unipro_custom_is_optical ( $child->tid ) == FALSE)) || (($theme === 'specsavers_hearing') && (_unipro_custom_is_hearcare ( $child->tid ) == FALSE))) {
+            // The term is in the user's territory but does not match the
+            // current store type theme.
+            // It fails filter 2 and is removed from the array of children.
+            unset ( $children [$child->tid] );
+          } else {
+            if ((_unipro_custom_is_optical ( $child->tid ) == FALSE) && (_unipro_custom_is_hearcare ( $child->tid ) == FALSE)) {
+              // TO DO - trap error not been able to establish storetype.
+            }
+          }
+        } else {
+          // The term is outside the users' territory so fails filter 1.
+          unset ( $children [$child->tid] );
+        }
+      } else {
+        // The term was not tagged with any access tokens, so we derive access
+        // rights from the ancestor terms.
+        // Get all the parents of the term.
+        $parents = taxonomy_get_parents_all ( $tid );
+        foreach ( $parents as $parent ) {
+          if (isset ( $parent->field_access_control ['und'] ) && (count ( $parent->field_access_control ['und'] ) > 0)) {
+            
+            foreach ( $parent->field_access_control ['und'] as $ac ) {
+              $accesstokens [] = $ac ['tid'];
+            }
+            break; // break out of the foreach as soon as we find an ancestor
+                     // that has access tokens.
+          }
+        }
+        if ((in_array ( $htids [0], $accesstokens ))) {
+          // We have a match between the terms' access tokens and the users'
+          // home location.
+          // The term is within the users' site and so passes through filter 1.
+          if ((($theme === 'specsavers') && (_unipro_custom_is_optical ( $child->tid ) == FALSE)) || (($theme === 'specsavers_hearing') && (_unipro_custom_is_hearcare ( $child->tid ) == FALSE))) {
+            // The term is in the user's territory but does not match the
+            // current store type theme.
+            // It fails filter 2 and is removed from the array of children.
+            unset ( $children [$child->tid] );
+          } else {
+            if ((_unipro_custom_is_optical ( $child->tid ) == FALSE) && (_unipro_custom_is_hearcare ( $child->tid ) == FALSE)) {
+              // To DO - handle error not been able to establish storetype.
+            }
+          }
+        } else {
+          // The term is outside the users' territory so fails filter 1.
+          unset ( $children [$child->tid] );
+        }
+      }
+    }
+  }
+  return $children;
+}
+
+/**
+ * Common error handler which outputs a message to the user and writes to the system watchdog.
+ * $supress is used to supress messages to the screen.
+ *
+ * @param
+ *          $function_name
+ * @param
+ *          $error_msg
+ * @param
+ *          $severity
+ */
+function _unipro_custom_error_handler($function_name, $error_msg, $severity = 'error', $supress = false) {
+  watchdog ( $function_name, $error_msg, null, WATCHDOG_ERROR );
+  if (!$supress) {drupal_set_message ( $function_name . ' reports error ' . $error_msg, $severity );}
+  return false;
+}
+
+function _unipro_get_all_territories() {
+  $territories = array ();
+  $offices = array ();
+  $stores = array ();
+  $vid = VID_SITE_ACCESS_ROLES;
+  $office_root = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( 'Offices', $vid );
+  $stores_root = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( 'Stores', $vid );
+  foreach ( $office_root as $key => $office ) {
+    $offices [] = taxonomy_get_children ( $key );
+  }
+  foreach ( $stores_root as $key => $store ) {
+    $stores [] = taxonomy_get_children ( $key );
+  }
+  
+  $territories = array_merge ( $offices, $stores );
+  return $territories;
+}
+
+function _unipro_custom_checkbeforedelete($tid) {
+  //Check if the term is used as an mlocation on any nodes.
+  $query = db_select('field_data_field_mlocation','m');
+  $query->condition('m.field_mlocation_tid' , $tid);
+  $query->condition('m.entity_type' , 'node');
+  $count = $query->countQuery();
+  $nodes = $count->execute()->fetchField();
+  if ($nodes > 0) {
+    return true;
+  }
+  //Check if the term has child terms.
+  $children = taxonomy_get_children($tid , VID_SITEMAP);  
+  if ($children) {
+    return true;
+  }
+}
+
+
+//Pass in a user id and this function will return the mlocations for that user's business updates and office notices.
+function _unipro_custom_set_content_location ($user, $content_type) {
+  // This section is how we determine where to place Business Updates and Office Notices content in the
+  // Sitemap.
+  
+  // Step 1 - Get the current user's Territory TID (field_tlocation) from
+  // the Site Access Roles vocab.
+  $ttid = _unipro_custom_get_user_profile_tids ( $user->uid, 'territory' );
+  $term_name = taxonomy_term_load ( $ttid [0] )->name;
+  
+  // Step 2 - Get the current user's Home Location TID (field_hlocation)
+  // from the Site Access Roles vocab.
+  $hloc = _unipro_custom_get_user_profile_tids ( $user->uid, 'home' );
+  
+  // Step 3 - Walk up through the Site Access Roles vocab to get all the
+  // parents as Taxonomy Term objects.
+  $get_antecedents = taxonomy_get_parents ( $ttid [0] );
+  
+  // Step 4 - Get a reference to the name of the root ancestor, which will
+  // be the first element in the array.
+  // This will either be Offices or Stores.
+  $root = reset ( $get_antecedents )->name;
+  
+  // Step 5 - Correlate with Sitemap.
+  $results = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( $root, VID_SITEMAP );
+  if (count ( $results ) > 0) {
+    // We have matched the root terms across the 2 vocabularies. (Offices or Stores).
+    // We have assumed that there will only ever be one occurrence of the term.
+  
+    // Get the child of the root which matches the user's territory.
+    $children = taxonomy_get_children ( reset ( $results )->tid, VID_SITEMAP ); 
+    //All the territories.
+  
+    foreach ( $children as $child ) {
+      if ($child->name == $term_name) {
+        // Break when we match the territory terms.
+        break;
+      }
+    }
+  
+    // Step 6 - Get a reference to the TID in Content_Type_Home_Page_Tags
+    // that matches the content type being created.
+     
+    $result = reset ( _unipro_custom_taxonomy_get_term_by_name_and_vocabulary ( $content_type, VID_CONTENT_TYPE_HOME_PAGE_TAGS ) );
+  
+    if (is_object ( $result )) {
+  
+      $tag = $result->tid;
+  
+      // Step 7 - Find all the terms in Sitemap that are tagged with the
+      // relevant content type.
+      $query = db_select ( 'field_data_field_business_office', 'bo' );
+      $query->addField ( 'bo', 'entity_id', 'entity_id' );
+      $query->condition ( 'bo.field_business_office_tid', $tag );
+      $result = $query->execute ();
+  
+      if ($result->rowCount ()) {
+  
+        foreach ( $result as $record ) {
+  
+          $tid = $record->entity_id;
+          $candidates_parents = array_reverse ( taxonomy_get_parents_all ( $record->entity_id ) );
+          if (isset ( $candidates_parents [1]->name ) && $candidates_parents [1]->name == $child->name) {
+            $candidate = array_pop ( $candidates_parents );
+  
+            // Check tid access control tokens
+            $get_acc_tids = _unipro_custom_get_access_tokens ( $candidate->tid );
+  
+            // If no access tids are associated with the current term check its parent
+            if (empty ( $get_acc_tids )) {
+              $get_acc_tids = _unipro_custom_get_parent_tids ( $candidate->tid );
+              // If no access tids are on the parents then return false with an error message
+              if (empty ( $get_acc_tids )) {
+                return false;
+              }
+            }
+  
+            // If the access tids match the users home location then return true
+            $check = (in_array ( $hloc [0], $get_acc_tids )) ? TRUE : FALSE;
+            if ($check) {
+              $mlocvalue = $candidate->tid;
+              if($content_type == 'business_updates') {
+                
+              }
+              return $mlocvalue;
+            }
+          }
+  
+        }
+  
+      } else {
+        // We've not been able to find any place to create the content.
+        _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['InvalidContentTag1000'] );
+        drupal_goto ( '<front>' );
+      }
+  
+    } else {
+      // We've not been able to find the tag on Content_Type_Home_Page_Tags
+      // that represents this content type.
+      _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['InvalidContentTag1001'] );
+      drupal_goto ( '<front>' );
+    }
+  
+  } else {
+    // We've not been able to correlate between Site Access Roles and
+    // Sitemap so redirect to front-page and end.
+    _unipro_custom_error_handler ( __FUNCTION__, $error_msgs ['SiteLookup'] );
+    drupal_goto ( '<front>' );
+  }
+}
+
+/**
+ * This function looks at the Sitemap locations of the node and their access control tagging, to decide if the node is LOCAL, TERRITIORY, FOREIGN or ALIEN.
+ * @param Integer $nid
+ * @return void|string
+ */
+
+function _unipro_custom_get_node_context($nid) {
+  global $user;
+  global $theme;
+  $node_stores = false;
+  $node_offices = false;
+  $user_stores = false;
+  $user_offices = false;
+  $territory_matched = false;
+  $current_domain = ($_SESSION['custom_theme'] == 'specsavers_offices') ? 'Offices' : 'Stores';
+  //Get the current site.
+  $current_site = _unipro_custom_get_user_profile_tids($user->uid);
+  $current_territory = _unipro_custom_get_user_profile_tids($user->uid , 'territory');
+  $sites = _unipro_custom_get_access_control_tids(node_load($nid) , true , false);
+  //dpm($sites);
+  if (empty($sites)) {
+    drupal_set_message('Cannot determine the node context for - '.$nid);
+    return;
+  }
+  if(in_array($current_site[0] , $sites)) {
+    //Logic - If the current site is tagged on any of the nodes mlocations then it's a local node.
+    return NODE_CONTEXT_LOCAL;
+  }
+  
+  
+  //Get parents of sites.
+  foreach ($sites as $site) {
+    $parents[] = _unipro_custom_get_parent($site);
+  }
+  //Remove duplicates.
+  $parents = _unipro_custom_make_array_unique ( $parents );
+  //Remove root terms such as "Offices" and "Stores".
+  foreach ($parents as $key => $parent) {
+    if (_unipro_custom_term_is_root($parent)) {
+      unset ($parents[$key]);
+    }
+  }
+
+  //If the current territory is in the array then get all the children of that array which will be siblings of the current site.
+  if (in_array($current_territory[0] , $parents)) {
+    $siblings = taxonomy_get_children($current_territory[0]);
+
+    foreach ($siblings as $sibling) {
+      $sibling_array [] = $sibling->tid;
+    }
+    $intersect = array_intersect($sites , $sibling_array);
+    if (count($intersect) > 0) {
+      return NODE_CONTEXT_TERRITORY;
+    }
+  }
+  
+  //Establish domain of node - Stores or Offices.
+  //Use access control tids.
+  foreach ($sites as $site) {
+    $parents = taxonomy_get_parents_all($site);
+    foreach ( $parents as $parent ) {
+      if ($parent->name == "Stores") {
+         $node_stores = true;
+         break;
+      }
+      if ($parent->name == "Offices") {
+        $node_offices = true;
+        break;
+      }
+    }
+  }
+  
+  //Establish domain of current site.
+  $parents = taxonomy_get_parents_all ( $current_site[0] );
+  foreach ( $parents as $parent ) {
+    if ($parent->name == "Stores") {
+      $user_stores = true;
+      break;
+    }
+    if ($parent->name == "Offices") {
+      $user_offices = true;
+      break;
+    }
+  }
+  
+  if ($node_offices && $user_offices) {
+    //If the node is under the current domain (Offices here) then it is a foreign node.
+    return NODE_CONTEXT_FOREIGN;
+  }
+  if ($node_stores && $user_stores) {
+    //If the node is under the current domain (Stores here) then it is a foreign node.
+    return NODE_CONTEXT_FOREIGN;
+  }
+  //If none of the above return points have been called , then the node is de facto alien.
+  return NODE_CONTEXT_ALIEN;
+}
+
+function _unipro_custom_select_lineage($context, $lineages) {
+  
+  global $theme;
+  global $user;
+  // Paul's patented lineage parser and selector code version 1.0
+  // Selects the most appropriate lineage from all the candidates and puts it in $selected_lineage. 
+  //Iterates over each mlocation and chooses a lineage that matches access tokens.
+  
+  //Get the current site information from the user's profile.
+  $current_site = _unipro_custom_get_user_profile_tids ( $user->uid );
+  $current_name = taxonomy_term_load ( $current_site [0] )->name;
+  $current_territory = _unipro_custom_get_user_profile_tids ( $user->uid, 'territory' );
+  $current_territory_name = taxonomy_term_load ( $current_territory [0] )->name;
+
+  foreach ( $lineages as $tid => $lineage ) {
+
+    $sitemap_name = taxonomy_term_load ( $tid )->name;
+    
+    if ($context == NODE_CONTEXT_LOCAL) {
+      // dpm('Unipro_Select_Lineages is working with a LOCAL node');
+      // Try and match on name. If the Sitemap term contains the name of the
+      // current site then it's likely that this is the most appropriate
+      // lineage.
+      if (strstr ( $sitemap_name, $current_name )) {
+        $selected_lineage = $lineage;
+        break;
+      }
+      
+      // Try and match on access tid. If there is no match on name then we are
+      // going to match a lineage that has terms that are tagged with the local
+      // sites access control.
+      
+      $actids = _unipro_custom_get_access_tokens ( $tid );
+      if (empty ( $actids )) {
+        $actids = _unipro_custom_get_parent_tids ( $tid, $unique = TRUE ); 
+      }
+      if (in_array ( $current_site [0], $actids )) {
+        $selected_lineage = $lineage;
+        break;
+      }
+    }
+    
+    if ($context == NODE_CONTEXT_TERRITORY) {
+       //dpm('Unipro_Select_Lineages is working with a TERRITORY node');
+      // Select a single access control tids that has parent matching the current territory.
+      
+      $actids = _unipro_custom_get_access_tokens ( $tid );
+      // Get access control tags from the sitemap term itself.
+      if (empty ( $actids )) {
+        // No tags on the term so look at its parents.
+        $actids = _unipro_custom_get_parent_tids ( $tid, $unique = TRUE );
+      }
+      $candidates = taxonomy_get_children ( $current_territory [0] , VID_SITE_ACCESS_ROLES );
+      foreach ( $candidates as $candidate ) {
+        $candidate_tids [] = $candidate->tid;
+      }
+      $intersect = array_intersect ( $actids, $candidate_tids );
+      if (count($intersect) > 0) {
+        $pos = array_search ( $current_site [0], $intersect );
+        if ($pos) {
+          // Remove the current site from the array so we can't choose it.
+          unset ( $intersect [$pos] );
+        }
+        $selected_site = $intersect [0];
+        $_SESSION ['selected_site'] = $selected_site;
+        $selected_lineage = $lineage;
+         //dpm('2232 - Selected access control match on REGION.');
+         //dpm($selected_lineage);
+        break;
+      }
+      // Try and match on name within the lineage.
+      foreach ( $lineage as $candidate ) {
+        foreach ( $candidate as $term ) {
+          if (strstr ( $term, $current_territory_name )) {
+            $selected_lineage = $lineage;
+             //dpm('2240 - Selected on name match.');
+             //dpm($selected_lineage);
+            break;
+          }
+        }
+      }
+    }
+    
+    if ($context == NODE_CONTEXT_FOREIGN) {
+       // dpm('Unipro_Select_Lineages is working with a FOREIGN node');
+      // Get access control tags from the sitemap term itself.
+      $actids = _unipro_custom_get_access_tokens ( $tid );
+      if (empty ( $actids )) {
+        // No tags on the term so look at its parents.
+        $actids = _unipro_custom_get_parent_tids ( $tid, $unique = TRUE );
+      }  
+      // Get parent of current territory.
+      $domains = taxonomy_get_parents ( $current_territory [0] );
+      
+      // Get the children of this domain.
+      foreach ( $domains as $domain ) {
+        $territories = taxonomy_get_children ( $domain->tid , VID_SITE_ACCESS_ROLES );
+        // Remove the current territory.
+        unset ( $territories [$current_territory [0]] );
+        foreach ( $territories as $territory ) {
+          $territory_tids [] = $territory->tid;
+        }
+      }
+      foreach ( $territory_tids as $candidate ) {
+        $sites = taxonomy_get_children ( $candidate , VID_SITE_ACCESS_ROLES );
+        $site_tids = array();
+        if (count ( $sites ) > 0) {
+          foreach ( $sites as $site ) {
+            $site_tids [] = $site->tid;
+          }
+          $intersect = array_intersect ( $actids, $site_tids );
+          if (count($intersect) > 0) {
+            $selected_site = array_shift($intersect);
+            $_SESSION ['selected_site'] = $selected_site;
+            $selected_lineage = $lineage;
+             //dpm('2283 - Selected on access control match on REGION');
+             //dpm($selected_lineage);
+            break 2;
+          }
+        } else {
+          $intersect = in_array ( $candidate, $actids );
+          //dpm($intersect);
+          if ($intersect) {
+            $selected_site = $candidate;
+            //dpm($selected_site);
+            $_SESSION ['selected_site'] = $selected_site;
+            $selected_lineage = $lineage;
+            //dpm('2294 - Selected on access control match on TERRITORY');
+            //dpm($selected_lineage);
+            break 2;
+          }
+        }
+      }
+    }
+    if ($context == NODE_CONTEXT_ALIEN) {
+       //dpm('Unipro_Select_Lineages is working with an ALIEN node');      
+      $actids = _unipro_custom_get_access_tokens ( $tid );
+      // Get access control tags from the sitemap term itself.
+      if (empty ( $actids )) {
+        // No tags on the term so look at its parents.
+        $actids = _unipro_custom_get_parent_tids ( $tid, $unique = TRUE );
+      }
+      //Select the correct domain.
+      if ($_SESSION ['custom_theme'] == 'specsavers_offices') {
+        $match = 'Stores';
+      } else {
+        $match = 'Offices';
+      }
+      //get domain tid.
+      $domains = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary($match, VID_SITE_ACCESS_ROLES);   
+      //drill down territories and sites.
+      foreach ($domains as $domain) {
+        $territories = taxonomy_get_children($domain->tid , VID_SITE_ACCESS_ROLES);
+        foreach ( $territories as $territory ) {
+          $territory_tids [] = $territory->tid;
+        }        
+        //Does the current territory have access control on an mlocation?
+        $equivalent_territory = _unipro_custom_taxonomy_get_term_by_name_and_vocabulary($current_territory_name, VID_SITE_ACCESS_ROLES);
+        if (count ( $equivalent_territory ) > 0) {
+          foreach ( $equivalent_territory as $candidate ) {
+            $sites = taxonomy_get_children ( $candidate->tid, VID_SITE_ACCESS_ROLES );
+            if (count ( $sites ) > 0) {
+              foreach ( $sites as $site ) {
+                $site_tids [] = $site->tid;
+              }
+              $intersect = array_intersect ( $actids, $site_tids );
+              if (count($intersect) > 0) {
+                $selected_site = array_shift($intersect); 
+                $_SESSION ['selected_site'] = $selected_site;
+                $_SESSION['sitemap_tid'] = $tid;
+                $selected_lineage = $lineage;
+                 //dpm('2337 - Selected lineage from equivalent REGIONAL site.');
+                //dpm($selected_lineage);
+                break 2;
+              }
+            } else {         
+              $intersect = in_array ( $candidate->tid, $actids );
+              if ($intersect)  {
+                $selected_site = $candidate;
+                $_SESSION ['selected_site'] = $selected_site;
+                $_SESSION['sitemap_tid'] = $tid;
+                $selected_lineage = $lineage;
+                 //dpm('2347 - Selected lineage from equivalent TERRITORY site.');
+                //dpm($selected_lineage);
+                break 2;
+              }
+            }
+          }
+        }
+        foreach ( $territory_tids as $candidate ) {
+          $sites = taxonomy_get_children ( $candidate , VID_SITE_ACCESS_ROLES );
+          $site_tids = array();
+          if (count ( $sites ) > 0) {
+            foreach ( $sites as $site ) {
+              $site_tids [] = $site->tid;
+            }
+             
+            $intersect = array_intersect ( $actids, $site_tids );
+            if (count($intersect) > 0) {
+              $selected_site = array_pop($intersect);
+              $_SESSION ['selected_site'] = $selected_site;
+              $selected_lineage = $lineage;
+              // dpm('2367 - Selected lineage from other REGIONAL site.');
+               //dpm($selected_lineage);
+              break 2;
+            }
+          } else {      
+            $intersect = in_array ( $candidate, $actids );
+            if ($intersect) {
+              $selected_site = $candidate;
+              $_SESSION ['selected_site'] = $selected_site;
+              $selected_lineage = $lineage;
+              //dpm('2377 - Selected lineage from other TERRITORY site.');
+              //dpm($selected_lineage);
+              break 2;
+            }
+          }
+        } 
+      }
+      // Try and match on name within the lineage.
+      foreach ( $lineage as $candidate ) {
+        foreach ( $candidate as $term ) {
+          if (strstr ( $term, $match )) {
+            $selected_lineage = $lineage;
+            break;
+          }
+        }
+      }
+    }
+  }
+  //After selecting a lineage, further select if the original selection has returned multiple lineages.
+  if (count ( $selected_lineage ) > 1) {
+    foreach ( $selected_lineage as $lineage ) {
+      foreach ( $lineage as $term ) {
+        if (strstr ( $term, $current_territory_name )) {
+          $selected_lineage = array ($lineage );
+          //dpm('2401 - Second selection made to remove multiple lineages');
+          break 2;
+        }
+      }
+    }
+  }
+  return $selected_lineage;
+}
+  
+
+function _unipro_custom_site_and_theme_switcher ($nid) {
+  global $user;
+  global $theme;
+  $lineage = null;
+ 
+  $account = user_load ( $user->uid );
+  $roles = array_values ( $account->roles );
+  $check_roles = array ('store staff', 'store director' );
+  $store_roles = array_intersect ( $check_roles, $roles );
+  $current_territory = _unipro_custom_get_user_profile_tids ( $user->uid, 'territory' );
+  $current_domain = ($theme == 'specsavers_offices') ? 'Offices' : 'Stores';
+  $context = _unipro_custom_get_node_context ( $nid );
+  //dpm ( "The context of this node is:" . $context );
+  
+  // Generate lineages for the node's mlocations.
+  $mlocations = _unipro_custom_get_nodes_mlocations ( $nid );
+  foreach ( $mlocations as $tid ) {
+    $lineage = new lineage ( $tid );
+    $lineages [$tid] = $lineage->getLineages (); // all the lineages for
+    // this node.
+  }
+  
+  $selected_lineage = _unipro_custom_select_lineage ( $context, $lineages );
+  $_SESSION['selected_lineage'] = $selected_lineage;
+  
+  // Create a breadcrumb using the selected lineage.
+  $_SESSION ['breadcrumb']->reset ();
+  
+  
+  //Build the breadcrumb.
+  foreach ( $selected_lineage as $lineage ) {
+    preg_match ( '/\([0-9]+\)/', $lineage[0], $matches );
+    $_SESSION['context'] = trim($matches [0] , '()');
+    //dpm('context set is = ' . $_SESSION['context'] );
+    foreach ( array_reverse ( $lineage ) as $key => $term ) {   
+      if ($key > 1){
+        preg_match ( '/\([0-9]+\)/', $term, $matches );
+        $_SESSION ['breadcrumb']->addCrumb ( trim($matches [0] , '()') );
+      }
+    }
+  }
+  // Bail this function with the current theme, if the node is local.
+  if ($context == NODE_CONTEXT_LOCAL) {
+     //dpm ( 'Exit point 1 - LOCAL - Theme - ' . $_SESSION ['custom_theme'] );
+    unset($_SESSION['teasers']);
+    return $_SESSION ['custom_theme'];
+  }
+  
+  if ($context == NODE_CONTEXT_TERRITORY) {
+    // Get all the territories that are under the current territory and try
+    // to match against the selected lineage.
+    // The value in $_SESSION['selected_site'] was selected by using the
+    // access control tids.
+  
+    if (isset ( $_SESSION ['selected_site'] )) {
+      $target_site_tid = $_SESSION ['selected_site'];
+      $target_site_parent = taxonomy_get_parents($target_site_tid);
+      foreach ($target_site_parent as $parent) {
+        $target_territory_tid = $parent->tid;
+      }
+      if (_unipro_custom_term_is_root($target_territory_tid)) {
+        //Set the territory and site as the same for all branches that don't have regions.
+        $target_territory_tid = $target_site_tid;
+      }
+      unset ( $_SESSION ['selected_site'] );
+    } else {
+      //This is a backup approach to match on name but should never get called in practice.
+      //It would only get called if there had been a problem selecting a site via access control settings.
+      $territory_tids = taxonomy_get_children ( $current_territory [0], VID_SITE_ACCESS_ROLES );
+      foreach ( $territory_tids as $tid ) {
+        foreach ( $selected_lineage as $lineage ) {
+          foreach ( array_reverse ( $lineage ) as $key => $term ) {
+            if ($key > 1) {
+              if (strstr ( $term, $tid->name )) {
+                $selected_site = $tid;
+                $target_site_tid = $_SESSION ['selected_site'];
+                $target_site_parent = taxonomy_get_parents($target_site_tid);
+                foreach ($target_site_parent as $parent) {
+                  $target_territory_tid = $parent->tid;
+                }
+                if (_unipro_custom_term_is_root($target_territory_tid)) {
+                  //Set the territory and site as the same for all branches that don't have regions.
+                  $target_territory_tid = $target_site_tid;
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  
+    $edit = array ('field_hlocation' => array ('und' => array (0 => array ('tid' => $target_site_tid ) ) ), 'field_tlocation' => array ('und' => array (0 => array ('tid' => $target_territory_tid ) ) ) );
+     //dpm($edit);
+    user_save ( $account, $edit );
+   // dpm($_SESSION['teasers']);
+    // dpm ( 'Exit point 2 - TERRITORY  - Theme - ' . $_SESSION ['custom_theme'] );
+     //dpm ( 'Switched into ' . $target_site_tid);
+     unset($_SESSION['teasers']);
+    return $_SESSION ['custom_theme'];
+  }
+  
+  
+  if ($context == NODE_CONTEXT_FOREIGN) {
+    // Get all the territories that are under the current territory and try
+    // to match against the selected lineage.
+    // The value in $_SESSION['selected_site'] was selected by using the
+    // access control tids.
+    $target_site_tid = $_SESSION ['selected_site'];
+    $target_site_parent = taxonomy_get_parents($target_site_tid);
+    foreach ($target_site_parent as $parent) {
+      $target_territory_tid = $parent->tid;
+    }
+    if (_unipro_custom_term_is_root($target_territory_tid)) {
+      //Set the territory and site as the same for all branches that don't have regions.
+      $target_territory_tid = $target_site_tid;
+    }
+    unset ( $_SESSION ['selected_site'] );
+     
+    //This is a backup approach to match on name but should never get called in practice.
+    //It would only get called if there had been a problem selecting a site via access control settings.
+    $territory_tids = taxonomy_get_children ( $current_territory [0], VID_SITE_ACCESS_ROLES );
+    foreach ( $territory_tids as $tid ) {
+      foreach ( $selected_lineage as $lineage ) {
+        foreach ( array_reverse ( $lineage ) as $key => $term ) {
+          if ($key > 1) {
+            if (strstr ( $term, $tid->name )) {
+              $selected_site = $tid;
+              $target_site_tid = $selected_site->tid;
+              $target_site_parent = taxonomy_get_parents($target_site_tid);
+              foreach ($target_site_parent as $parent) {
+                $target_territory_tid = $parent->tid;
+              }
+              if (_unipro_custom_term_is_root($target_territory_tid)) {
+                //Set the territory and site as the same for all branches that don't have regions.
+                $target_territory_tid = $target_site_tid;
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  
+  
+    $edit = array ('field_hlocation' => array ('und' => array (0 => array ('tid' => $target_site_tid ) ) ), 'field_tlocation' => array ('und' => array (0 => array ('tid' => $target_territory_tid ) ) ) );
+    user_save ( $account, $edit );
+     //dpm ( 'Exit point 3 - FOREIGN  - Theme - ' . $_SESSION ['custom_theme'] );
+     //dpm ( 'Switched into ' . $target_site_tid);
+    //dpm($_SESSION['teasers']);
+    unset($_SESSION['teasers']);
+    return $_SESSION ['custom_theme'];
+  }
+  
+  if ($context == NODE_CONTEXT_ALIEN) {
+    // Get all the territories that are under the current territory and try
+    // to match against the selected lineage.
+    // The value in $_SESSION['selected_site'] was selected by using the
+    // access control tids.
+    $target_site_tid = $_SESSION ['selected_site'];
+    $target_site_parent = taxonomy_get_parents($target_site_tid);
+    foreach ($target_site_parent as $parent) {
+      $target_territory_tid = $parent->tid;
+    }
+    if (_unipro_custom_term_is_root($target_territory_tid)) {
+      //Set the territory and site as the same for all branches that don't have regions.
+      $target_territory_tid = $target_site_tid;
+    }
+    unset ( $_SESSION ['selected_site'] );
+     
+    //This is a backup approach to match on name but should never get called in practice.
+    //It would only get called if there had been a problem selecting a site via access control settings.
+    $territory_tids = taxonomy_get_children ( $current_territory [0], VID_SITE_ACCESS_ROLES );
+    foreach ( $territory_tids as $tid ) {
+      foreach ( $selected_lineage as $lineage ) {
+        foreach ( array_reverse ( $lineage ) as $key => $term ) {
+          if ($key > 1) {
+            if (strstr ( $term, $tid->name )) {
+              $selected_site = $tid;
+              $target_site_tid = $selected_site->tid;
+              $target_site_parent = taxonomy_get_parents($target_site_tid);
+              foreach ($target_site_parent as $parent) {
+                $target_territory_tid = $parent->tid;
+              }
+              if (_unipro_custom_term_is_root($target_territory_tid)) {
+                //Set the territory and site as the same for all branches that don't have regions.
+                $target_territory_tid = $target_site_tid;
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+    $edit = array ('field_hlocation' => array ('und' => array (0 => array ('tid' => $target_site_tid ) ) ), 'field_tlocation' => array ('und' => array (0 => array ('tid' => $target_territory_tid ) ) ) );
+    user_save ( $account, $edit );
+     //dpm ( 'Exit point 3 - FOREIGN  - Theme - ' . $_SESSION ['custom_theme'] );
+     //dpm ( 'Switched into ' . $target_site_tid);
+    //Change the theme.
+    if ($_SESSION['custom_theme'] == 'specsavers_offices') {
+      if (_unipro_custom_is_hearcare( $_SESSION ['sitemap_tid']) && !(_unipro_custom_is_optical( $_SESSION ['sitemap_tid']))) {
+        $custom_theme = 'specsavers_hearing';
+      } else {
+        $custom_theme = 'specsavers';
+      }
+    } else {
+      $custom_theme = 'specsavers_offices';
+    }
+    unset ( $_SESSION ['sitemap_tid'] );
+    $_SESSION['custom_theme'] = $custom_theme;
+   // dpm('Theme changed to '.$custom_theme);
+    //dpm($_SESSION['teasers']);
+    //dpm($_SESSION['context']);
+    unset($_SESSION['teasers']);
+    return $_SESSION ['custom_theme'];
+  }
+  
+}
+
+/**
+ * helper function to check whether a given term is a root term
+ */
+function _unipro_custom_term_is_root($tid) {
+  $is_root = (bool) db_query_range("SELECT 1 FROM {taxonomy_term_hierarchy} h WHERE h.tid = :tid AND h.parent = 0", 0, 1, array(':tid' => $tid))->fetchField();
+  if ($is_root) {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+
+/**
+ *
+ * Hides a role on the profile form
+ *
+ * @param $role -
+ *          Role to hide - as displayed
+ * @return true if role was hidden else false
+ */
+function _unipro_custom_hide_role($role,&$form) {
+  $search_rid = null;
+  $search_rid = array_search($role,$form ['account'] ['roles'] ['#options']);
+  if ($search_rid){
+    unset ( $form ['account'] ['roles'] ['#options'] [$search_rid] );
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+
+/**
+ * implements hook_preprocess_page 
+ */
+function unipro_custom_preprocess_page(&$vars) {
+  
+  // set the browser page title to match page title 
+  if('taxonomy' == arg(0) && 'term' == arg(1) && is_numeric(arg(2))) {
+    $res = db_query("SELECT name FROM {taxonomy_term_data} WHERE tid=:tid", array(':tid'=>arg(2)) )->fetchField() ;
+    drupal_set_title($res);
+  }  
+}
+
+
+/**
+ *	Adds a new role
+ *      @machine_name - the name of the role to be added
+ *      @weight - the optional display weight for role
+ */
+function _unipro_custom_add_role($machine_name, $weight = 20)  {
+  $role = new stdClass();
+  $role->name = $machine_name;
+  $role->weight = $weight;
+  user_role_save($role);
+}
+/**
+ *	Adds permissions to a role
+ *	@role_name - the name of the role to receive an update
+ *	@permissions - the array of permissions to add
+ */
+function _unipro_custom_add_permissions($role_name, $permissions)  {
+  $role = user_role_load_by_name($role_name);
+  user_role_grant_permissions($role->rid, $permissions);
+}
+
+
+
+/**
+ * Checks if a taxonomy term is within the communities branch.
+ */
+
+function _unipro_is_communities($tid) {
+  return false;  
+}

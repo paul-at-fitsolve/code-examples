@@ -1,0 +1,243 @@
+<?php
+
+// $Id$
+
+/**
+ * @file
+ * Integrates the Javascript-based Dynatree - a dynamic tree view plugin for jQuery with support for persistence, keyboard, checkboxes, drag'n'drop, and lazy loading.
+ * http://code.google.com/p/dynatree/
+ */
+
+/**
+ *
+ * Implements hook_field_widget_info.
+ */
+function unipro_dynatree_field_widget_info() {
+  //Define a Drupal Widget that is associated with taxonomy term references.
+  //Set a custom behaviour for multiple values to supress Drupal's own multiple-values in-form handling.
+  return array(
+      'dynatree' => array(
+          'label' => t('Dynatree HTML Tree View'),
+          'description' => t('Allow the user to select values using Dynatree.'),
+          'field types' => array('taxonomy_term_reference'),
+          'behaviors' => array(
+              'multiple values' => FIELD_BEHAVIOR_CUSTOM,
+              'default value' => FIELD_BEHAVIOR_DEFAULT,
+          ),
+      ),
+  );
+}
+
+/**
+ *
+ * Implements hook_node_presave.
+ *
+ * @param Node $node
+ */
+function unipro_dynatree_node_presave($node) {
+  //If the node is one of the types contained within the $content_forms array,
+  //then we need to save the node with the menu-location(s) (from Sitemap) that have
+  //been set within the node's Dynatree tree.
+  $type = $node->type;
+  $content_forms = array('general_content', 'general_content_moderated', 'poll', 'front_page_article');
+  if (in_array($type, $content_forms)) {
+    $menu_location = array();
+    //This session variable is set in _unipro_dynatree_settree, before the node edit form is submitted,
+    //using a synchronous http request triggered by the Dynatree Javascript.
+    if (empty($_SESSION['mlocations'])) {
+      return;
+    }
+    //Get the mlocations set in the Dynatree.
+    $mtids = $_SESSION['mlocations'];
+
+    foreach ($mtids as $tid) {
+      $menu_location[]['tid'] = $tid;
+    }
+    $node->field_mlocation[LANGUAGE_NONE] = $menu_location;
+
+    //When an author saves an article, the system will automatically read the sitemap settings for optical / hearcare and copy them to a new hidden field on the article.
+    $is_optical = false;
+    $is_hearcare = false;
+
+    //Storetype is set on the node via a term reference to the Store_type vocabulary.
+    //Get the TIDs for the terms within this vocabulary.
+    $optical_tid = null;
+    $hearcare_tid = null;
+    $optical_tids = taxonomy_get_term_by_name('Optical');
+    $hearcare_tids = taxonomy_get_term_by_name('Hearcare');
+    foreach ($optical_tids as $tid) {
+      if ($tid->vocabulary_machine_name == 'store_type') {
+        $optical_tid = $tid->tid;
+      }
+    }
+    foreach ($hearcare_tids as $tid) {
+      if ($tid->vocabulary_machine_name == 'store_type') {
+        $hearcare_tid = $tid->tid;
+      }
+    }
+
+    //Parse the array of mlocations and use the custom functions _unipro_custom_is_hearcare and _unipro_custom_is_optical
+    //to determine if the node is tagged with a term that is marked optical and/or hearcare.
+    foreach ($mtids as $tid) {
+      if (_unipro_custom_is_hearcare($tid)) {
+        $is_hearcare = true;
+      }
+      if (_unipro_custom_is_optical($tid)) {
+        $is_optical = true;
+      }
+    }
+
+    //set the node's field_storetype.
+    $field_storetype = array();
+    if ($is_optical) {
+      $field_storetype []['tid'] = $optical_tid;
+    }
+    if ($is_hearcare) {
+      $field_storetype []['tid'] = $hearcare_tid;
+    }
+    $node->field_store_type[LANGUAGE_NONE] = $field_storetype;
+  }
+}
+
+/**
+ *
+ * Implements hook_form_alter to modify the Dynatree form adding an onsubmit function and extending the
+ * Drupal settings object to include the current node and current tid.
+ */
+function unipro_dynatree_form_alter(&$form, &$form_state, $form_id) {
+  $content_forms = array('general_content_node_form', 'general_content_moderated_node_form', 'poll_node_form', 'front_page_article_node_form');
+  if (in_array($form_id, $content_forms)) {
+    $form['#attributes'] = array('onsubmit' => 'Drupal.Unipro.Dynatree.submitDynatree()');
+    drupal_add_js(array('currentNode' => arg(1)), 'setting');
+    drupal_add_js(array('currentTid' => arg(3)), 'setting');
+  }
+}
+
+/**
+ *
+ * Implements hook_field_widget_form.
+ */
+function unipro_dynatree_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $element['div_tag'] = array('#markup' => '<label>Publish to</label><div class="desc">Select a location for your content to appear in.</div><div id="tree"></div>',
+      '#attached' => array(
+          'library' => array(array('system', 'ui'), array('system', 'ui.dialog'),
+          ),
+          'js' => array('sites/all/libraries/dynatree/src/jquery.dynatree.js',
+              drupal_get_path('module', 'unipro_dynatree') . '/js/unipro_dynatree.js',
+          ),
+          'css' => array('sites/all/libraries/dynatree/src/skin/ui.dynatree.css',
+          ),
+      ),
+  );
+  return $element;
+}
+
+/**
+ * Implements hook_menu.
+ */
+function unipro_dynatree_menu() {
+  $items = array();
+  $items['ajax/getmlocations'] = array(
+      'title' => 'Build a filtered list of locations',
+      'type' => MENU_CALLBACK,
+      'description' => 'Build a filtered list of locations',
+      'page callback' => '_unipro_dynatree_gettree',
+      'access arguments' => array('access content'),
+  );
+  $items['ajax/setmlocations'] = array(
+      'title' => 'Set a list of locations',
+      'type' => MENU_CALLBACK,
+      'description' => 'Set a filtered list of locations',
+      'page callback' => '_unipro_dynatree_settree',
+      'access arguments' => array('access content'),
+  );
+  return $items;
+}
+
+//***** Private functions ******
+
+/**
+ *
+ * Builds an array containing the data needed to produce a Dynatree object.
+ * This is a callback function invoked from Javascript to build a tree showing all the Sitemap locations (mlocations)
+ * which the user has permission to write to. This is determined by the alocation settings on their profile.
+ */
+function _unipro_dynatree_gettree() {
+  // Passed as an argument via Dynatree.
+  $nid = $_REQUEST['nid'];
+  
+  //If the node id is not set then this means that the user is creating a
+  //new node. 
+  
+  //In this case the JS passes the nid as literal string 'add' unless there
+  //is an interruption by a validation function in which case null is passed.
+  
+  //If add or null are passed then set the node mlocations to those held in the
+  //session variable 'mlocations'. These are set by the function setMlocations 
+  //which would have been called just prior to this code running.
+  if ($nid === null) {
+    $_SESSION['node_mtids'] = $_SESSION['mlocations'];
+  } else if ($nid == 'add') {
+    unset($_SESSION['mlocations']);
+    $_SESSION['node_mtids'] = array();
+  } 
+  else {
+    //We have a nid so get the mlocations for that node.
+    $node_mtids = _unipro_custom_get_nodes_mlocations($nid);
+    $_SESSION['node_mtids'] = $node_mtids;
+  }
+  global $user;
+  $uid = $user->uid;
+  //Get the users alocations.
+  $alocs = _unipro_custom_get_user_profile_tids($uid, 'author');
+  //Get all the Sitemap locations to which the user can publish.
+  $atids = _unipro_custom_get_atids($uid, TRUE, TRUE);
+  $roots = array();
+  foreach ($atids as $tid) {
+    $parents = taxonomy_get_parents($tid);
+    foreach ($parents as $parent) {
+      if (!(in_array($parent->tid, $roots))) {
+        $roots[] = $parent->tid;
+      }
+    }
+  }
+  //Get the root of the Sitemap.
+  foreach ($roots as $tid) {
+    $childnodes = array();
+    //Get all the children terms.
+    $tree = _unipro_custom_get_taxonomy_hierarchy(2, $tid);
+    foreach ($tree as $term) {
+      $accesstokens = array();
+      $accesstokens = _unipro_custom_get_access_tokens($term->tid);
+      //edit out the areas that the user does not have accces to,
+      if ($accesstokens) {
+        $intersection = array_intersect($accesstokens, $alocs);
+        if (count($intersection) > 0) {
+          $output = _unipro_custom_set_dynatree_array($term);
+          $childnodes[] = $output;
+        }
+      }
+    }
+    $dynatree[] = array('title' => taxonomy_term_load($tid)->name,
+        'isFolder' => TRUE,
+        'children' => $childnodes,
+        'key' => $tid,
+        'select' => FALSE,
+        'unselectable' => TRUE,
+        'hideCheckbox' => TRUE,
+        'autoFocus' => FALSE,
+    );
+  }
+  echo json_encode($dynatree);
+  exit();
+}
+
+/**
+ *
+ * Callback function to store the mlocations that have been selected by the user via the Dynatree.
+ */
+function _unipro_dynatree_settree() {
+  $_SESSION['mlocations'] = $_REQUEST['mlocations'];
+  echo json_encode(array('result' => 0, 'mlocations' => $_REQUEST['mlocations']));
+  exit();
+}

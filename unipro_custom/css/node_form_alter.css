@@ -1,0 +1,162 @@
+/*** NODE ADD FORM **/
+#node-add-wrapper div.form-item,#node-add-wrapper #topics {
+	margin-top: 20px;
+}
+
+#node-add-wrapper label {
+	font-size: 14px;
+	font-weight: bold;
+}
+
+#node-add-wrapper .form-type-managed-file {
+	margin-top: -25px;
+}
+
+#node-add-wrapper span.fieldset-legend {
+	margin-top: -14px;
+	position: absolute;
+	font-weight: bold;
+	font-size: 14px;
+}
+
+#node-add-wrapper label[for=edit-body-und-0-value],#node-add-wrapper label[for=edit-field-see-also-und-0-nid],#node-add-wrapper label[for=edit-field-topics-und],#node-add-wrapper label[for=edit-body-und-0-summary]
+	{
+	font-size: 14px;
+}
+
+#node-add-wrapper .desc,.text-summary-wrapper,.description {
+	font-size: 10px;
+	padding: 3px;
+}
+
+.text-summary-wrapper .text-summary,
+#edit-field-summary-und-0-value {
+	font-size: 12px;
+	line-height: 1.2;
+	font-family: Helvetica, Arial !important;
+}
+
+#node-add-wrapper #suggest_tags {
+	margin-top: 10px;
+}
+
+#node-add-wrapper input#edit-title,#node-add-wrapper input#edit-name {
+	font-size: 2em;
+	line-height: 1;
+	width: 99%;
+}
+
+#node-add-wrapper #edit-field-image-und,#node-add-wrapper #edit-field-image-und-0-ajax-wrapper,#node-add-wrapper #edit-field-document-und,#node-add-wrapper #edit-field-document-und-0-ajax-wrapper
+	{
+	border: 1px solid #ccc;
+}
+
+#node-add-wrapper fieldset legend {
+	background: none;
+	border: none;
+	margin-top: -1.6em;
+	margin-left: -0.8em;
+}
+
+#image span.fieldset-legend {
+	margin-left: -0.7em;
+}
+
+#node-add-wrapper #image {
+	margin-top: 1em;
+	margin-bottom: 2.5em;
+}
+
+#node-add-wrapper #tree {
+	margin-top: -10px;
+}
+
+#node-add-wrapper .boxed-content {
+	border: 1px solid #ccc;
+	padding-left: 1em;
+	margin-bottom: 2em;
+}
+
+#edit-field-content-type-und {
+	height: 40px;
+	margin-top: -10px;
+}
+
+#node-add-wrapper  #edit-field-content-type-und div.form-item {
+	width: 150px;
+	float: left;
+	margin-top: 0;
+}
+
+#node-add-wrapper  #edit-field-content-type-und input.error div.boxed-content {
+    border: 2px solid red;
+}
+
+#node-add-wrapper #document {
+	margin-bottom: 2em;
+}
+
+#node-add-wrapper #see_also div.form-item {
+	margin: 0;
+	padding: 0;
+}
+
+#node-add-wrapper #document_description {
+	margin-left: -8px;
+	padding: 8px;
+}
+
+#node-add-wrapper th.field-label,#edit-description-format,#edit-comment-body-und-0-format,#edit-body-und-0-format,#node-add-wrapper .tabledrag-toggle-weight,#node-add-wrapper label[for=edit-field-image-und-0],#node-add-wrapper label[for=edit-field-topics-und],#node-add-wrapper #document span.fieldset-legend,#node-add-wrapper label[for=edit-field-content-type-und],#node-add-wrapper label[for=edit-field-insert-image-und-0]
+	{
+	display: none;
+}
+
+/* ------------------ #node-add-wrapper Table Styles ------------------ */
+#node-add-wrapper td {
+	border: 1px solid #ccc;
+}
+
+#node-add-wrapper table tr th {
+	background: none;
+	font-size: 15px;
+	font-weight: bold;
+	color: #333;
+}
+
+#node-add-wrapper #footer-wrapper tr td,#node-add-wrapper #footer-wrapper tr th
+	{
+	background: none;
+}
+
+#node-add-wrapper tr.odd {
+	background: none;
+}
+
+#node-add-wrapper tr,#node-add-wrapper tr.even {
+	background: none;
+}
+
+/* ---------------- Schedular settings field --------------- */
+#edit-field-publish-on fieldset {
+    margin: 0;
+    padding: 0;
+    margin-top: 4em;
+}
+
+#edit-field-unpublish-on fieldset {
+    margin: 0;
+    padding: 0;
+    margin-top: 4em;
+    margin-bottom: 4em;	
+}
+
+#edit-field-publish-on .fieldset-wrapper,
+#edit-field-unpublish-on .fieldset-wrapper {
+	margin: 0;
+}
+
+#edit-field-publish-on span.fieldset-legend,
+#edit-field-unpublish-on span.fieldset-legend {
+	margin: 0;
+	position: relative;
+}

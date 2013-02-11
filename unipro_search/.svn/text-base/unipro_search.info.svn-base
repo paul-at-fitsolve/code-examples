@@ -1,0 +1,15 @@
+;$Id$
+
+name = Unipro Search Module
+description = "Custom block for Drupal's Search API."
+core = 7.x
+version = RC1.0
+package = Unipro Custom
+files[] = /js/unipro_search.js
+files[] = unipro_search.install
+files[] = unipro_search.module
+files[] = date_views_filter_handler.inc
+files[] = date_views_fields.inc
+files[] = class/stemmer.inc
+dependencies[] = unipro_custom
+dependencies[] = search_api

@@ -1,0 +1,154 @@
+<?php
+
+/**
+ * Implementation of hook_init() 
+ */
+function unipro_uploader_init() {
+  drupal_add_css(drupal_get_path('module', 'unipro_uploader') . '/css/unipro_uploader.css');
+  drupal_add_js(drupal_get_path('module', 'unipro_uploader') . '/js/unipro_uploader.js');
+}
+
+/**
+ * implements hook_form_alter
+ */
+function unipro_uploader_form_alter(&$form, &$form_state, $form_id) {
+  $content_forms = array('general_content_node_form', 'general_content_moderated_node_form', 'poll_node_form', 'front_page_article_node_form');
+  if (in_array($form_id, $content_forms)) {
+    if (arg(1) == 'add') {
+      drupal_add_js(array('newNode' => arg(3)), 'setting');
+    }
+  }
+}
+
+/**
+ * Implementation of hook_node_presave()
+ * @param object $node 
+ */
+function unipro_uploader_node_presave($node) {
+  global $theme;
+  $files = array ();
+  if (isset($_SESSION ['fid'])) {
+    if (count($_SESSION ['fid']) > 0) {
+      foreach ($_SESSION ['fid'] as $candidate) {
+        // FID has been set in this session so we need to link this node to
+        // the selected file.
+        // Load the file object.
+        if (! in_array($candidate ['fid'], $files)) {
+          $file = file_load($candidate ['fid']);
+          $description = $candidate ['desc'];
+          // Create an array to contain all the data needed to describe the
+          // file.
+          $file_details = array ();
+          $file_details ['fid'] = isset($file->fid) ? $file->fid : null;
+          $file_details ['display'] = 1;
+          $file_details ['description'] = $description;
+          $file_details ['uid'] = isset($file->uid) ? $file->uid : null;
+          $file_details ['filename'] = isset($file->filename) ? $file->filename : null;
+          $file_details ['uri'] = isset($file->uri) ? $file->uri : null;
+          $file_details ['filemime'] = isset($file->filemime) ? $file->filemime : null;
+          $file_details ['filesize'] = isset($file->filesize) ? $file->filesize : null;
+          $file_details ['status'] = isset($file->status) ? $file->status : null;
+          $file_details ['timestamp'] = isset($file->timestamp) ? $file->timestamp : null;
+          $file_details ['type'] = isset($file->type) ? $file->type : null;
+          
+          // Modify the node object to include the link to the file.
+          if ($theme == 'specsavers_offices') {
+            $node->field_documentprivate [LANGUAGE_NONE] [] = $file_details;
+          }
+          else {
+            $node->field_documentstores [LANGUAGE_NONE] [] = $file_details;
+          }
+        }
+      }
+    }
+    // Unset the session variables after linking the node to the file.
+    unset($_SESSION ['fid']);
+    
+  }
+}
+
+/**
+ * Implements hook_menu.
+ */
+function unipro_uploader_menu() {
+
+  $items = array();
+
+  $items['ajax/checkfilename'] = array(
+      'title' => 'Check filename exists.',
+      'type' => MENU_CALLBACK,
+      'description' => 'Check that a file already exists in a directory and warn.',
+      'page callback' => '_unipro_uploader_checkfile',
+      'access arguments' => array('access content'),
+  );
+
+  $items['ajax/linkfiletonode'] = array(
+      'title' => 'Upload a new FID to link to a node',
+      'type' => MENU_CALLBACK,
+      'description' => 'Link a file to a node.',
+      'page callback' => '_unipro_uploader_linkfiletonode',
+      'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+/**
+ *
+ * @global type $user 
+ * //Callback function.
+ * //Checks a directory to see if the file name specified in 
+ * $_REQUEST['filename'] already exists.
+ * Returns a JSON object containing the territory, directory , mask and 
+ * an object containing all matched files.
+ * If no files are found then this returns an empty object.
+ * Use jQuery.isEmptyObject() to check the return value.
+ */
+function _unipro_uploader_checkfile() {
+  global $user;
+  $uid = $user->uid;
+  $found = array ();
+  $filename = $_REQUEST ['filename'];
+  $filesystem = $_REQUEST ['filesystem'];
+  $tid = _unipro_custom_get_user_profile_tids ( $uid, 'territory' );
+  $territory = taxonomy_term_load ( $tid [0] )->tid;
+  $uri = $filesystem . $territory . '/files/' . $filename;
+  $query = db_select ( 'file_managed', 'fm' );
+  $query->addField ( 'fm', 'fid', 'fid' );
+  $query->addField ( 'fm', 'uid', 'uid' );
+  $query->addField ( 'fm', 'timestamp', 'timestamp' );
+  $query->condition ( 'fm.uri', $uri );
+  $query->condition ( 'fm.status', 1 );
+  $result = $query->execute ();
+  if ($result->rowCount () > 0) {
+    $record = $result->fetchObject ();
+    $fid = $record->fid;
+    $record->uploader = user_load ( $record->uid )->name;
+    $query = db_select ( 'file_usage', 'fu' );
+    $query->addField ( 'fu', 'id', 'nid' );
+    $query->condition ( 'fu.fid', $fid );
+    $result = $query->execute ();
+    $record1 = $result->fetchAll ();
+    $nodes = array ();
+    foreach ( $record1 as $nid ) {
+      $node = node_load ( $nid->nid );
+      $nodes [$nid->nid] ['nid'] = $node->nid;
+      $nodes [$nid->nid] ['author'] = $node->uid;
+      $nodes [$nid->nid] ['title'] = $node->title;
+      $nodes [$nid->nid] ['type'] = $node->type;
+      $nodes [$nid->nid] ['created'] = $node->created;
+    }
+    $record->nodes = $nodes;
+    $found [$uri]->file = $record;
+  }
+  echo (json_encode ( array ('filename' => $filename, 'territory' => $territory, 'found' => $found ) ));
+  exit ();
+}
+
+function _unipro_uploader_linkfiletonode() {
+  $_SESSION['fid'][$_REQUEST['fid']]['fid'] = $_REQUEST['fid'];
+  $_SESSION['fid'][$_REQUEST['fid']]['desc'] = $_REQUEST['desc'];
+  echo json_encode(array('result' => 0, 'fid' => $_REQUEST['fid'],
+      'desc' => $_REQUEST['desc']));
+  exit();
+}

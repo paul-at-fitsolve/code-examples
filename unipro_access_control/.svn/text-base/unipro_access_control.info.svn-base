@@ -1,0 +1,8 @@
+;$Id$
+
+name = Unipro Access Control
+description = "Controls access to nodes based on Specsaver's business rules."
+core = 7.x
+version = RC1.0
+package = Unipro Custom
+dependencies[] = unipro_custom
